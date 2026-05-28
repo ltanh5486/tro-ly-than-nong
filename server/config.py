@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API Key
-API_KEY = os.getenv("API_KEY", "dev-key-ai-nong-san-2026")
+API_KEY = os.getenv("API_KEY")
 
 # Ánh xạ Vùng Canh Tác
 LOCATION_MAPPING = {
@@ -136,4 +136,3 @@ WEATHER_VARIABLES = [
     "relative_humidity_2m_max",
     "wind_speed_10m_max",
 ]
-

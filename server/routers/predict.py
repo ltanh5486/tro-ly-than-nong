@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 import database, models
 from schemas import PredictRequest, PredictResponse
-from dependencies import verify_api_key
 from routers.auth import get_current_user
 from config import LOCATION_MAPPING, CROP_MAPPING, CROP_ALTERNATIVES, ACTION_CHECKLIST
 from ml.inference import predict_risk, predict_price, get_weather
@@ -20,7 +19,6 @@ router = APIRouter(
     "/predict",
     response_model=PredictResponse,
     summary="Phân tích AI dự báo canh tác & giá nông sản",
-    dependencies=[Depends(verify_api_key), Depends(get_current_user)],
 )
 @limiter.limit("60/minute")
 async def predict(request: Request, body: PredictRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
@@ -59,8 +57,8 @@ async def predict(request: Request, body: PredictRequest, current_user: models.U
                 "name": loc_name,
                 "elevation": loc_info["elevation"],
                 "climate": loc_info["climate"],
-                "current_temp": weather["temp_max"],
-                "recent_rainfall_mm": weather["precipitation"]
+                "current_temp": weather.get("temp_current", weather["temp_max"]),
+                "recent_rainfall_mm": weather.get("precipitation_current", weather["precipitation"])
             },
             action_plan={
                 "level": violation["level"],
@@ -113,8 +111,8 @@ async def predict(request: Request, body: PredictRequest, current_user: models.U
                 "name": loc_name,
                 "elevation": loc_info["elevation"],
                 "climate": loc_info["climate"],
-                "current_temp": weather["temp_max"],
-                "recent_rainfall_mm": weather["precipitation"]
+                "current_temp": weather.get("temp_current", weather["temp_max"]),
+                "recent_rainfall_mm": weather.get("precipitation_current", weather["precipitation"])
             },
             action_plan={
                 "level": "danger",
@@ -390,8 +388,8 @@ async def predict(request: Request, body: PredictRequest, current_user: models.U
             "name": loc_name,
             "elevation": loc_info["elevation"],
             "climate": loc_info["climate"],
-            "current_temp": weather["temp_max"],
-            "recent_rainfall_mm": weather["precipitation"]
+            "current_temp": weather.get("temp_current", weather["temp_max"]),
+            "recent_rainfall_mm": weather.get("precipitation_current", weather["precipitation"])
         },
         action_plan={
             "level": risk_level_str,

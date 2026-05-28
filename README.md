@@ -44,7 +44,7 @@ graph TD
         ML --> XGB["XGBoost Models"]
     end
     
-    API --> SQLite[("SQLite App DB")]
+    API --> AppDB[("Supabase Postgres / SQLite local fallback")]
 ```
 
 ## 🚀 Core Capabilities & Technical Highlights
@@ -58,6 +58,7 @@ graph TD
 ### 2. Multi-Model Predictive Analytics
 - **Temporal Fusion Transformer (TFT)**: Applied via `pytorch-forecasting` for multivariate time-series forecasting (Robusta Coffee prices), incorporating global weather anomalies and macro-economic indicators.
 - **Gradient Boosting (XGBoost)**: Low-latency inference for non-stationary commodities (Durian, Oolong Tea) with automated feature engineering pipelines (lag features, rolling means).
+- **Runtime fallback**: Coffee price forecasting currently uses a deterministic historical-statistical model from processed CSV data when legacy TFT checkpoints are incompatible with the deployed Python/Pandas runtime.
 
 ### 3. Financial & Ecological Decision Engine
 - **Expert Rules Engine**: A localized ruleset evaluating real-time weather APIs (temperature, precipitation) against optimal ecological parameters (elevation, crop cycle) to predict yield risk.
@@ -74,7 +75,7 @@ graph TD
 | Domain | Technologies |
 | :--- | :--- |
 | **Backend Framework** | `FastAPI`, `Uvicorn`, `Pydantic` (V2) |
-| **Database & ORM** | `SQLAlchemy` 2.0, `SQLite` |
+| **Database & ORM** | `SQLAlchemy` 2.0, `Supabase Postgres`, `SQLite` local fallback |
 | **Vector Database** | `ChromaDB` |
 | **AI / LLM Orchestration** | `LangChain`, `Google GenAI SDK`, `OpenAI Async SDK` |
 | **Machine Learning** | `PyTorch 2.x`, `PyTorch Lightning`, `XGBoost`, `Scikit-learn`, `Pandas` |
@@ -108,9 +109,32 @@ OPENROUTER_API_KEY="your_openrouter_key"
 LM_STUDIO_URL="http://127.0.0.1:1234/v1"
 
 # Database & Security
+# Local default:
 DATABASE_URL="sqlite:///./data/nongsan_v2.sqlite3"
+# Supabase production:
+# DATABASE_URL="postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
 SECRET_KEY="your_jwt_secret_key"
 DEFAULT_ADMIN_PWD="admin_password"
+```
+
+### Supabase Database Setup
+
+Use the Supabase Postgres connection string as `DATABASE_URL`. The app still falls back to
+`server/data/nongsan_v2.sqlite3` when `DATABASE_URL` is not set, so local development keeps
+working without Supabase.
+
+```powershell
+cd server
+$env:DATABASE_URL="postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
+python migrate_db.py
+```
+
+To copy existing local SQLite users, chat history, and prediction history into Supabase:
+
+```powershell
+cd server
+$env:SUPABASE_DATABASE_URL="postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
+python migrate_sqlite_to_supabase.py
 ```
 
 ### 2. Standalone Execution (Virtual Environment)

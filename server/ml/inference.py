@@ -26,9 +26,6 @@ CROP_FILE_MAP = {
     "Chè Ô Long": "oolong"
 }
 
-import torch
-from pytorch_forecasting import TimeSeriesDataSet, TemporalFusionTransformer
-
 # Đường dẫn tới thư mục chứa models
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_DIR = os.path.join(BASE_DIR, "ai_models")
@@ -40,92 +37,163 @@ def load_pkl(filename):
         return joblib.load(path)
     return None
 
-def load_tft_model(crop_name_key):
-    """Load model TFT và tham số dataset từ file .pt"""
-    file_base = CROP_FILE_MAP.get(crop_name_key, crop_name_key.lower().replace(' ', '_'))
-    path = os.path.join(MODEL_DIR, f"tft_{file_base}.pt")
-    if not os.path.exists(path):
+
+def _load_price_history(crop_name):
+    file_base = CROP_FILE_MAP.get(crop_name)
+    if not file_base:
         return None
-    
-    try:
-        # Load checkpoint an toàn
-        checkpoint = torch.load(path, map_location=torch.device('cpu'), weights_only=False)
-        params = checkpoint["dataset_parameters"]
-        
-        # Lấy giá trị thực tế từ file để tránh lỗi lọc dữ liệu do độ dài encoder
-        file_name = f"processed_{file_base}.csv"
-        csv_path = os.path.join(DATA_DIR, file_name)
-        if not os.path.exists(csv_path):
-            return None
-            
-        df_sample = pd.read_csv(csv_path)
-        df_sample = df_sample.tail(100).copy() # Lấy 100 dòng cuối là đủ cho encoder (90)
-        df_sample['time_idx'] = range(len(df_sample))
-        df_sample['group'] = 0
-        
-        for col in params.get("time_varying_known_categoricals", []):
-            df_sample[col] = df_sample[col].astype(str)
-        
-        # Khôi phục TimeSeriesDataSet parameters
-        dataset = TimeSeriesDataSet.from_parameters(params, df_sample)
-        
-        tft = TemporalFusionTransformer.from_dataset(
-            dataset,
-            **checkpoint["model_config"]
-        )
-        tft.load_state_dict(checkpoint["model_state_dict"])
-        tft.eval()
-        
-        return {
-            "model": tft,
-            "params": params
-        }
-    except Exception as e:
-        print(f"❌ Cảnh báo: Không thể tải mô hình {crop_name_key} do lỗi: {e}")
+
+    csv_path = os.path.join(DATA_DIR, f"processed_{file_base}.csv")
+    if not os.path.exists(csv_path):
         return None
+
+    df = pd.read_csv(csv_path)
+    if df.empty or "price_vnd" not in df.columns:
+        return None
+
+    if "date" in df.columns:
+        df = df.sort_values("date")
+    return df
+
+
+def _smooth_fallback_forecast(current_price, base_date, horizon=30):
+    forecast = []
+    for day in range(1, horizon + 1):
+        target_date = (base_date + timedelta(days=day)).strftime("%Y-%m-%d")
+        seasonal_adjustment = 0.005 * np.sin(day / 30 * np.pi)
+        predicted = current_price * (1 + seasonal_adjustment)
+        forecast.append({
+            "date": target_date,
+            "min": float(predicted * 0.95),
+            "predicted": float(predicted),
+            "max": float(predicted * 1.05),
+        })
+    return forecast
+
+
+def _historical_price_forecast(crop_name, current_price, base_date, horizon=30):
+    """Deterministic statistical forecast from recent price history."""
+    df = _load_price_history(crop_name)
+    if df is None or len(df) < 10:
+        return _smooth_fallback_forecast(current_price, base_date, horizon)
+
+    prices = pd.to_numeric(df["price_vnd"], errors="coerce").dropna().tail(120)
+    if len(prices) < 10:
+        return _smooth_fallback_forecast(current_price, base_date, horizon)
+
+    returns = prices.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+    recent_returns = returns.tail(30)
+    trend = float(recent_returns.mean()) if not recent_returns.empty else 0.0
+    trend = float(np.clip(trend, -0.003, 0.003))
+    volatility = float(recent_returns.std()) if len(recent_returns) > 1 else 0.01
+    volatility = float(np.clip(volatility, 0.004, 0.035))
+
+    forecast = []
+    price = float(current_price)
+    for day in range(1, horizon + 1):
+        target_date = (base_date + timedelta(days=day)).strftime("%Y-%m-%d")
+        seasonal = 0.0015 * np.sin(day / 30 * np.pi)
+        price = price * (1 + trend + seasonal)
+        interval = volatility * np.sqrt(day / 7)
+        forecast.append({
+            "date": target_date,
+            "min": float(price * max(0.0, 1 - interval)),
+            "predicted": float(price),
+            "max": float(price * (1 + interval)),
+        })
+    return forecast
+
 
 # Load models globally to avoid reloading on every request
 RISK_MODEL = load_pkl("risk_rf.pkl")
 DURIAN_MODEL = load_pkl("xgb_sau_rieng_ri6.pkl")
 OOLONG_MODEL = load_pkl("xgb_che_o_long.pkl")
 
-# Cache cho TFT models
-TFT_MODELS = {
-    "Cà phê Robusta": load_tft_model("Cà phê Robusta"),
-    "Cà phê Arabica": load_tft_model("Cà phê Arabica")
-}
-
 import requests
-from functools import lru_cache
+import time
 
-@lru_cache(maxsize=32)
-def get_weather(location_name="Phường B'Lao"):
-    """
-    Lấy dữ liệu thời tiết thực tế từ Open-Meteo.
-    """
-    loc_info = LOCATION_MAPPING.get(location_name, LOCATION_MAPPING["Phường B'Lao"])
+WEATHER_CACHE_TTL_SECONDS = int(os.getenv("WEATHER_CACHE_TTL_SECONDS", "600"))
+_WEATHER_CACHE = {}
+
+
+def _first_value(values, default=None):
+    if isinstance(values, list) and values:
+        return values[0]
+    return default
+
+
+def _round_weather(value, default):
+    if value is None:
+        value = default
+    return round(float(value), 1)
+
+
+def get_weather(location_name=None):
+    """Fetch current and daily weather from Open-Meteo."""
+    now = time.time()
+    cached = _WEATHER_CACHE.get(location_name)
+    if cached and now - cached["fetched_at"] < WEATHER_CACHE_TTL_SECONDS:
+        return cached["data"]
+
+    loc_info = LOCATION_MAPPING.get(location_name) or next(iter(LOCATION_MAPPING.values()))
     lat = loc_info["coordinates"]["lat"]
     lon = loc_info["coordinates"]["lon"]
-    
+
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Asia/Ho_Chi_Minh&forecast_days=1"
-        response = requests.get(url, timeout=5)
+        response = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "current": "temperature_2m,relative_humidity_2m,precipitation,rain,showers,weather_code",
+                "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+                "timezone": "Asia/Ho_Chi_Minh",
+                "forecast_days": 1,
+            },
+            timeout=8,
+        )
         response.raise_for_status()
         data = response.json()
-        
-        return {
-            "temp_max": data["daily"]["temperature_2m_max"][0],
-            "temp_min": data["daily"]["temperature_2m_min"][0],
-            "precipitation": data["daily"]["precipitation_sum"][0]
+        current = data.get("current", {})
+        daily = data.get("daily", {})
+
+        daily_temp_max = _first_value(daily.get("temperature_2m_max"), 28.5)
+        daily_temp_min = _first_value(daily.get("temperature_2m_min"), 19.0)
+        daily_precipitation = _first_value(daily.get("precipitation_sum"), 0.0)
+        current_temp = current.get("temperature_2m", daily_temp_max)
+        current_precipitation = current.get("precipitation", 0.0)
+
+        weather = {
+            "temp_current": _round_weather(current_temp, daily_temp_max),
+            "temp_max": _round_weather(daily_temp_max, current_temp),
+            "temp_min": _round_weather(daily_temp_min, current_temp),
+            "precipitation": _round_weather(daily_precipitation, 0.0),
+            "precipitation_current": _round_weather(current_precipitation, 0.0),
+            "humidity": current.get("relative_humidity_2m"),
+            "weather_code": current.get("weather_code"),
+            "weather_time": current.get("time"),
+            "source": "open-meteo",
+            "is_fallback": False,
         }
+        _WEATHER_CACHE[location_name] = {"fetched_at": now, "data": weather}
+        return weather
     except Exception as e:
         print(f"Error fetching weather: {e}")
-        # Fallback to mock data if API fails
-        return {
+        weather = {
+            "temp_current": 28.5,
             "temp_max": 28.5,
             "temp_min": 19.0,
-            "precipitation": 15.0
+            "precipitation": 15.0,
+            "precipitation_current": 0.0,
+            "humidity": None,
+            "weather_code": None,
+            "weather_time": None,
+            "source": "fallback",
+            "is_fallback": True,
         }
+        _WEATHER_CACHE[location_name] = {"fetched_at": now, "data": weather}
+        return weather
+
 
 def predict_risk(location_name, crop_name):
     """
@@ -210,87 +278,18 @@ def predict_price(crop_name, current_price, location_name="Phường B'Lao"):
             temp_price = pred_val # Cập nhật cho ngày kế tiếp
             
     elif model_type == "tft":
-        # ── LOGIC TFT THỰC TẾ ──
-        tft_data = TFT_MODELS.get(crop_name)
-        if not tft_data:
-            # Fallback nếu chưa có model
-            trend_factor = 1.001
-            for i in range(1, 31):
-                target_date = (base_date + timedelta(days=i)).strftime("%Y-%m-%d")
-                predicted = current_price * (trend_factor ** i) + (np.random.normal(0, 300))
-                forecast.append({"date": target_date, "min": predicted * 0.96, "predicted": predicted, "max": predicted * 1.04})
-            return forecast
-
-        model = tft_data["model"]
-        params = tft_data["params"]
-        
-        # 1. Load dữ liệu lịch sử để làm ngữ cảnh (Encoder)
-        file_base = CROP_FILE_MAP.get(crop_name, crop_name.lower().replace(' ', '_'))
-        file_name = f"processed_{file_base}.csv"
-        df_hist = pd.read_csv(os.path.join(DATA_DIR, file_name))
-        df_hist = df_hist.tail(90).copy() # Lấy 90 ngày cuối
-        df_hist['time_idx'] = range(len(df_hist))
-        df_hist['group'] = 0
-        
-        # 2. Tạo dữ liệu dự báo cho 30 ngày tới (Decoder)
-        last_idx = df_hist['time_idx'].max()
-        future_dates = [base_date + timedelta(days=i) for i in range(1, 31)]
-        df_future = pd.DataFrame({
-            "date": future_dates,
-            "time_idx": range(last_idx + 1, last_idx + 31),
-            "group": 0,
-            "price_vnd": current_price # Seed value
-        })
-        
-        # Thêm các feature thời gian cho future
-        df_future['month'] = df_future['date'].dt.month.astype(str)
-        df_future['quarter'] = df_future['date'].dt.quarter.astype(str)
-        df_future['day_of_week'] = df_future['date'].dt.dayofweek.astype(str)
-        
-        # Giả lập thời tiết tương lai (lấy weather hiện tại làm base)
-        weather = get_weather(location_name)
-        df_future['temp_max'] = weather['temp_max']
-        df_future['temp_min'] = weather['temp_min']
-        df_future['precipitation'] = weather['precipitation']
-        
-        # Chuyển đổi categorical cho hist
-        for col in ["month", "quarter", "day_of_week"]:
-            df_hist[col] = df_hist[col].astype(str)
-            
-        # Kết hợp hist + future
-        df_combined = pd.concat([df_hist, df_future], ignore_index=True)
-        
-        # 3. Chạy Inference
-        new_raw_data = TimeSeriesDataSet.from_parameters(params, df_combined, predict=True)
-        
-        with torch.no_grad():
-            # Trả về quantiles (7 quantiles)
-            # 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98
-            # Chúng ta lấy index 3 (0.5) làm dự báo chính, index 1 (0.1) làm min, index 5 (0.9) làm max
-            prediction = model.predict(new_raw_data, mode="quantiles")[0]
-            
-            for i in range(30):
-                pred_val = float(prediction[i, 3]) # Median
-                min_val = float(prediction[i, 1])
-                max_val = float(prediction[i, 5])
-                
-                target_date = future_dates[i].strftime("%Y-%m-%d")
-                forecast.append({
-                    "date": target_date,
-                    "min": min_val,
-                    "predicted": pred_val,
-                    "max": max_val
-                })
+        return _historical_price_forecast(crop_name, current_price, base_date)
     else:
         # Fallback
         for i in range(1, 31):
             target_date = (base_date + timedelta(days=i)).strftime("%Y-%m-%d")
-            predicted = current_price * (1 + (np.random.normal(0, 0.005) * i))
+            seasonal_adjustment = 0.005 * np.sin(i / 30 * np.pi)
+            predicted = current_price * (1 + seasonal_adjustment)
             forecast.append({
                 "date": target_date,
-                "min": predicted * 0.95,
-                "predicted": predicted,
-                "max": predicted * 1.05
+                "min": float(predicted * 0.95),
+                "predicted": float(predicted),
+                "max": float(predicted * 1.05)
             })
             
     return forecast

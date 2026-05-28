@@ -16,7 +16,11 @@ from limiter import limiter
 load_dotenv()
 
 # Cấu hình bảo mật
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-for-dev-only")
+APP_ENV = os.getenv("APP_ENV", "development").lower()
+SECRET_KEY_ENV = os.getenv("SECRET_KEY")
+SECRET_KEY = SECRET_KEY_ENV or "your-secret-key-for-dev-only"
+if APP_ENV in {"production", "prod"} and not SECRET_KEY_ENV:
+    raise RuntimeError("SECRET_KEY must be set in production.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 ngày
 
@@ -65,7 +69,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
         email=email_lower,
         hashed_password=hashed_password,
         full_name=user.full_name,
-        role=user.role
+        role="farmer"
     )
     db.add(db_user)
     db.commit()

@@ -10,8 +10,10 @@ services:
     volumes:
       - ./server/data:/app/server/data
     environment:
-      - SECRET_KEY=nong-san-bi-mat-2026
-      - DATABASE_URL=sqlite:///./server/data/nongsan.db
+      - APP_ENV=${APP_ENV:-development}
+      - SECRET_KEY=${SECRET_KEY}
+      - DEFAULT_ADMIN_PWD=${DEFAULT_ADMIN_PWD}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/server/data/nongsan_v2.sqlite3}
       - HF_HOME=/app/server/data/hf_cache
     restart: always
 

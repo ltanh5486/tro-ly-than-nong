@@ -30,6 +30,8 @@ if hasattr(sys.stderr, 'reconfigure'):
 from database import SessionLocal
 import bcrypt
 
+APP_ENV = os.getenv("APP_ENV", "development").lower()
+
 def init_admin():
     db = SessionLocal()
     try:
@@ -37,7 +39,9 @@ def init_admin():
         existing = db.query(models.User).filter(models.User.username == admin_username).first()
         if not existing:
             salt = bcrypt.gensalt()
-            default_pwd = os.getenv("DEFAULT_ADMIN_PWD", "admin123")
+            default_pwd = os.getenv("DEFAULT_ADMIN_PWD")
+            if not default_pwd:
+                raise RuntimeError("DEFAULT_ADMIN_PWD must be set before creating the default admin account.")
             hashed = bcrypt.hashpw(default_pwd.encode('utf-8'), salt).decode('utf-8')
             new_admin = models.User(
                 username=admin_username,
@@ -50,6 +54,60 @@ def init_admin():
             db.add(new_admin)
             db.commit()
             logger.info("System: Created default admin account.")
+
+        # Seed lịch sử tìm kiếm mẫu để biểu đồ hiển thị sinh động và đủ 4 loại cây trồng
+        history_count = db.query(models.SearchHistory).count()
+        if history_count == 0:
+            admin_user = db.query(models.User).filter(models.User.role == "admin").first()
+            admin_id = admin_user.id if admin_user else 1
+
+            default_history = [
+                models.SearchHistory(
+                    user_id=admin_id,
+                    location="B'Lao, Bảo Lộc",
+                    crop="Chè Ô Long",
+                    mode="Tối ưu hóa lợi nhuận",
+                    capital=150000000.0,
+                    area_ha=2.5,
+                    risk_level="Thấp",
+                    recommendation="Khuyến nghị tập trung bón phân hữu cơ và tỉa cành định kỳ."
+                ),
+                models.SearchHistory(
+                    user_id=admin_id,
+                    location="Lộc Thanh, Bảo Lộc",
+                    crop="Cà phê Robusta",
+                    mode="Tối ưu hóa lợi nhuận",
+                    capital=100000000.0,
+                    area_ha=1.8,
+                    risk_level="Trung bình",
+                    recommendation="Đề phòng bệnh rỉ sắt trong giai đoạn mùa mưa sắp tới."
+                ),
+                models.SearchHistory(
+                    user_id=admin_id,
+                    location="Đại Lào, Bảo Lộc",
+                    crop="Sầu riêng Ri6",
+                    mode="Phòng ngừa rủi ro",
+                    capital=300000000.0,
+                    area_ha=1.2,
+                    risk_level="Cao",
+                    recommendation="Đặc biệt chú ý thoát nước tốt để tránh thối rễ."
+                ),
+                models.SearchHistory(
+                    user_id=admin_id,
+                    location="B'Lao, Bảo Lộc",
+                    crop="Cà phê Arabica",
+                    mode="Tối ưu hóa lợi nhuận",
+                    capital=80000000.0,
+                    area_ha=1.0,
+                    risk_level="Thấp",
+                    recommendation="Khuyến nghị thu hoạch đúng độ chín để nâng cao chất lượng hạt Arabica Catimor."
+                )
+            ]
+            for h in default_history:
+                db.add(h)
+            db.commit()
+            logger.info("System: Seeded search history with 4 main crops.")
+
     except Exception as e:
         logger.error(f"Error initializing admin: {e}")
     finally:

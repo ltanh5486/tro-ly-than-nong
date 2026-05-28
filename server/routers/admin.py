@@ -30,6 +30,40 @@ def get_stats(db: Session = Depends(database.get_db), admin: models.User = Depen
         func.count(models.SearchHistory.id).label('count')
     ).group_by(models.SearchHistory.crop).all()
     
+    # Bộ ánh xạ chuẩn hóa về đúng 4 loại cây trồng chính
+    crop_mapping = {
+        "chè oolong": "Chè Ô Long",
+        "chè ô long": "Chè Ô Long",
+        "oolong": "Chè Ô Long",
+        "cà phê robusta": "Cà phê Robusta",
+        "cà phê robusta (tr4/tr9)": "Cà phê Robusta",
+        "robusta": "Cà phê Robusta",
+        "cà phê arabica": "Cà phê Arabica",
+        "cà phê arabica (catimor)": "Cà phê Arabica",
+        "arabica": "Cà phê Arabica",
+        "sầu riêng ri6": "Sầu riêng Ri6",
+        "sầu riêng": "Sầu riêng Ri6",
+        "durian": "Sầu riêng Ri6"
+    }
+
+    normalized_crops = {
+        "Chè Ô Long": 0,
+        "Cà phê Robusta": 0,
+        "Cà phê Arabica": 0,
+        "Sầu riêng Ri6": 0
+    }
+    for crop_name, count in crop_stats:
+        if not crop_name:
+            continue
+        name_clean = crop_name.lower().strip()
+        norm_name = crop_mapping.get(name_clean, crop_name.strip())
+        if norm_name in normalized_crops:
+            normalized_crops[norm_name] += count
+        else:
+            normalized_crops[norm_name] = count
+
+    crop_distribution = [{"label": label, "value": val} for label, val in normalized_crops.items()]
+
     # Thống kê phân bố vùng trồng (cho biểu đồ cột)
     region_stats = db.query(
         models.SearchHistory.location, 
@@ -40,7 +74,7 @@ def get_stats(db: Session = Depends(database.get_db), admin: models.User = Depen
         "total_users": total_users,
         "farmers": farmers,
         "admins": admins,
-        "crop_distribution": [{"label": c[0], "value": c[1]} for c in crop_stats],
+        "crop_distribution": crop_distribution,
         "region_distribution": [{"label": r[0], "value": r[1]} for r in region_stats],
         "kb_status": "Ready" if os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "chroma_db")) else "Not Initialized"
     }
@@ -116,8 +150,11 @@ def delete_document(filename: str, admin: models.User = Depends(check_admin)):
 @router.get("/trends")
 def get_chat_trends(db: Session = Depends(database.get_db), admin: models.User = Depends(check_admin)):
     """Phân tích các từ khóa phổ biến trong câu hỏi của người dùng."""
-    chats = db.query(models.ChatHistory.question).all()
-    all_text = " ".join([c[0].lower() for c in chats])
+    chats = db.query(models.ChatHistory.question)\
+              .order_by(models.ChatHistory.created_at.desc())\
+              .limit(2000)\
+              .all()
+    all_text = " ".join([c[0].lower() for c in chats if c[0]])
     
     # Các từ khóa nông nghiệp cần theo dõi
     keywords = ["sầu riêng", "cà phê", "arabica", "robusta", "bón phân", "sâu bệnh", "giá", "chi phí", "thu hoạch", "tưới nước"]

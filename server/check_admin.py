@@ -1,16 +1,18 @@
-import sqlite3
-import os
+from database import SessionLocal
+from models import User
 
-db_path = 'data/nongsan_v2.sqlite3'
-if not os.path.exists(db_path):
-    db_path = 'nongsan_v2.sqlite3'
 
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-cursor.execute("SELECT username, email FROM users WHERE username='admin'")
-row = cursor.fetchone()
-if row:
-    print(f"User: {row[0]}, Email: {row[1]}")
-else:
-    print("Không tìm thấy tài khoản admin")
-conn.close()
+def main() -> None:
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.username == "admin").first()
+        if admin:
+            print(f"User: {admin.username}, Email: {admin.email}")
+        else:
+            print("Khong tim thay tai khoan admin")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

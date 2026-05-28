@@ -13,7 +13,6 @@ from openai import AsyncOpenAI
 from langchain_core.output_parsers import StrOutputParser
 
 from schemas import ChatRequest, ChatResponse, ChatMessage
-from dependencies import verify_api_key
 from routers.auth import get_current_user
 import database, models
 from ml.rag_engine import rag_engine
@@ -277,7 +276,7 @@ def _run_finance_simulation(crop: str, capital: float, area_ha: float, location:
         f"**Khuyến nghị**: {res['production_decision']['recommendation']}"
     )
 
-@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(verify_api_key)])
+@router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat(request: Request, body: ChatRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     try:
@@ -325,7 +324,7 @@ async def chat(request: Request, body: ChatRequest, current_user: models.User = 
         logger.error(f"Chat Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Lỗi hệ thống")
 
-@router.post("/chat/stream", dependencies=[Depends(verify_api_key)])
+@router.post("/chat/stream")
 @limiter.limit("30/minute")
 async def chat_stream(request: Request, body: ChatRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     """Endpoint hỗ trợ Streaming response."""

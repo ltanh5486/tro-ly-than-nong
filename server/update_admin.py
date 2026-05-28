@@ -1,16 +1,26 @@
-import sqlite3
 import os
 
-db_path = 'data/nongsan_v2.sqlite3'
-if not os.path.exists(db_path):
-    db_path = 'nongsan_v2.sqlite3'
+from database import SessionLocal
+from models import User
 
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-cursor.execute("UPDATE users SET email='nhumothacker@gmail.com' WHERE username='admin'")
-conn.commit()
-if cursor.rowcount > 0:
-    print("Success: Updated Admin email to nhumothacker@gmail.com")
-else:
-    print("Error: Admin user not found")
-conn.close()
+
+def main() -> None:
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@thannong.ai")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.username == "admin").first()
+        if not admin:
+            print("Error: Admin user not found")
+            return
+        admin.email = admin_email
+        db.commit()
+        print(f"Success: Updated admin email to {admin_email}")
+    except Exception as exc:
+        db.rollback()
+        print(f"Error: {exc}")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

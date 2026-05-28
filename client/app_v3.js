@@ -7,7 +7,6 @@
 const CONFIG = {
     // Tự động sử dụng localhost nếu đang chạy máy ảo, hoặc dùng domain hiện tại nếu deploy chung
     API_BASE_URL: window.location.origin + "/api",
-    API_KEY: "dev-key-ai-nong-san-2026",
     SIMULATED_DELAY: 2000, 
 };
 
@@ -131,7 +130,6 @@ async function handleFormSubmit(e) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-API-Key': CONFIG.API_KEY,
                 'Authorization': `Bearer ${state.user?.token}`
             },
             body: JSON.stringify(formData)
@@ -204,14 +202,14 @@ function renderLocationInfo(info) {
                 <span class="stat-icon">${tempIcon}</span>
                 <div class="stat-data">
                     <span class="stat-value font-mono">${info.current_temp}°C</span>
-                    <span class="stat-label">Nhiệt độ (${todayStr})</span>
+                    <span class="stat-label">Nhiệt độ hiện tại</span>
                 </div>
             </div>
             <div class="stat-item stat-rain">
                 <span class="stat-icon">${rainIcon}</span>
                 <div class="stat-data">
                     <span class="stat-value font-mono">${info.recent_rainfall_mm}mm</span>
-                    <span class="stat-label">Lượng mưa (${todayStr})</span>
+                    <span class="stat-label">Mưa hiện tại</span>
                 </div>
             </div>
             <div class="stat-item stat-elevation">
@@ -459,8 +457,8 @@ function renderWeatherChart(info) {
         d.setDate(d.getDate() + i);
         return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
     });
-    const tempMax = Array.from({length: 14}, () => 25 + Math.random() * 5);
-    const rainfall = Array.from({length: 14}, () => Math.random() * 20);
+    const tempMax = labels.map((_, i) => i === 0 ? Number(info.current_temp || 0) : null);
+    const rainfall = labels.map((_, i) => i === 0 ? Number(info.recent_rainfall_mm || 0) : null);
 
     state.charts.weather = new Chart(ctx, {
         type: 'bar',
@@ -799,7 +797,6 @@ function initChat() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-API-Key': CONFIG.API_KEY,
                     'Authorization': `Bearer ${state.user?.token}`
                 },
                 body: JSON.stringify({
