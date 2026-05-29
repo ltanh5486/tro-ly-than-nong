@@ -20,8 +20,7 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=7860 \
-    DATABASE_URL=sqlite:////tmp/nongsan_v2.sqlite3
+    PORT=7860
 
 WORKDIR /app
 

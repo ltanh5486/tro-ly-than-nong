@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import create_engine
@@ -32,6 +33,9 @@ def mask_db_url(url: str) -> str:
 def _normalize_database_url(url: str) -> str:
     """Make common hosted Postgres URLs work with SQLAlchemy."""
     normalized = url.strip()
+    if normalized.startswith("sqlite"):
+        return _prepare_sqlite_url(normalized)
+
     if normalized.startswith("postgres://"):
         normalized = "postgresql+psycopg://" + normalized[len("postgres://") :]
     elif normalized.startswith("postgresql://"):
@@ -47,23 +51,55 @@ def _normalize_database_url(url: str) -> str:
     return normalized
 
 
+def _sqlite_url_for_path(path: str) -> str:
+    return f"sqlite:///{Path(path).resolve().as_posix()}"
+
+
+def _copy_local_sqlite_to_tmp() -> str:
+    tmp_path = os.path.join(tempfile.gettempdir(), "nongsan_v2.sqlite3")
+    if os.path.exists(LOCAL_SQLITE_PATH) and not os.path.exists(tmp_path):
+        try:
+            shutil.copy2(LOCAL_SQLITE_PATH, tmp_path)
+            os.chmod(tmp_path, 0o666)
+            print(f"[DB] Pre-filled SQLite database copied to {tmp_path}")
+        except Exception as copy_exc:
+            print(f"[DB] Error: failed to copy pre-filled database: {copy_exc}")
+    return tmp_path
+
+
+def _prepare_sqlite_url(url: str) -> str:
+    if url in {"sqlite://", "sqlite:///:memory:", "sqlite:///:memory"}:
+        return url
+
+    if url.startswith("sqlite:////"):
+        db_path = "/" + url[len("sqlite:////") :]
+    elif url.startswith("sqlite:///"):
+        raw_path = url[len("sqlite:///") :]
+        db_path = raw_path if os.path.isabs(raw_path) else os.path.join(BASE_DIR, raw_path)
+    else:
+        print(f"[DB] Warning: unsupported SQLite URL format {url!r}; using fallback.")
+        db_path = LOCAL_SQLITE_PATH
+
+    db_dir = os.path.dirname(os.path.abspath(db_path))
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", dir=db_dir, delete=True, encoding="utf-8") as f:
+            f.write("test")
+        return _sqlite_url_for_path(db_path)
+    except Exception as exc:
+        print(f"[DB] Warning: SQLite path is not writable ({db_path}): {exc}")
+        return _sqlite_url_for_path(_copy_local_sqlite_to_tmp())
+
+
 def _fallback_sqlite_url() -> str:
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", dir=DATA_DIR, delete=True, encoding="utf-8") as f:
             f.write("test")
-        return f"sqlite:///{LOCAL_SQLITE_PATH}"
+        return _sqlite_url_for_path(LOCAL_SQLITE_PATH)
     except Exception as exc:
         print(f"[DB] Warning: local data directory is not writable: {exc}")
-        tmp_path = os.path.join(tempfile.gettempdir(), "nongsan_v2.sqlite3")
-        if os.path.exists(LOCAL_SQLITE_PATH) and not os.path.exists(tmp_path):
-            try:
-                shutil.copy2(LOCAL_SQLITE_PATH, tmp_path)
-                os.chmod(tmp_path, 0o666)
-                print(f"[DB] Pre-filled SQLite database copied to {tmp_path}")
-            except Exception as copy_exc:
-                print(f"[DB] Error: failed to copy pre-filled database: {copy_exc}")
-        return f"sqlite:///{tmp_path}"
+        return _sqlite_url_for_path(_copy_local_sqlite_to_tmp())
 
 
 def get_database_url() -> str:
