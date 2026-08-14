@@ -36,6 +36,7 @@ CLASS_NAMES = [
     "stem_blight",
     "stem_cracking_ gummosis",
     "thrips_disease",
+    "yellow_leaf",
 ]
 
 
