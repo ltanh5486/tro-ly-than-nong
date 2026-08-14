@@ -32,3 +32,5 @@ pytorch-forecasting>=1.0.0
 email-validator
 openai
 langchain-google-genai
+onnxruntime
+Pillow
