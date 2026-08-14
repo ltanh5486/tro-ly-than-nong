@@ -8,7 +8,8 @@ const CONFIG = {
     // Tự động sử dụng localhost nếu đang chạy máy ảo, hoặc dùng domain hiện tại nếu deploy chung
     API_BASE_URL: window.location.origin + "/api",
     SIMULATED_DELAY: 2000, 
-};
+    };
+const DISEASE_API_URL = "URL_VERCEL_DISEASE_SERVICE_CUA_BAN";
 
 // ── State Management ─────────────────────────────────────────
 let state = {
@@ -1272,4 +1273,134 @@ function initUserMenu() {
     dropdown.addEventListener('click', (e) => {
         e.stopPropagation();
     });
+}
+// ── Disease Detection ───────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    const diseaseForm = document.getElementById('disease-form');
+    const diseaseInput = document.getElementById('disease-image');
+    const previewWrap = document.getElementById('disease-preview-wrap');
+    const preview = document.getElementById('disease-preview');
+
+    if (!diseaseForm || !diseaseInput) return;
+
+    diseaseInput.addEventListener('change', () => {
+        const file = diseaseInput.files?.[0];
+
+        if (!file) {
+            previewWrap?.classList.add('hidden');
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+
+        if (preview) {
+            preview.src = objectUrl;
+        }
+
+        previewWrap?.classList.remove('hidden');
+    });
+
+    diseaseForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const file = diseaseInput.files?.[0];
+
+        if (!file) {
+            alert("Vui lòng chọn ảnh sầu riêng cần kiểm tra.");
+            return;
+        }
+
+        const submitBtn = document.getElementById('disease-submit');
+        const btnText = document.getElementById('disease-btn-text');
+        const btnLoading = document.getElementById('disease-btn-loading');
+        const resultBox = document.getElementById('disease-result');
+        const statusBox = document.getElementById('disease-status');
+
+        submitBtn.disabled = true;
+        btnText?.classList.add('hidden');
+        btnLoading?.classList.remove('hidden');
+
+        resultBox?.classList.add('hidden');
+
+        if (statusBox) {
+            statusBox.textContent = "🔬 AI đang phân tích ảnh...";
+            statusBox.classList.remove('hidden');
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch(`${DISEASE_API_URL}/predict`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    data.detail ||
+                    `Lỗi nhận diện bệnh (${response.status})`
+                );
+            }
+
+            const diseaseName =
+                document.getElementById('disease-name');
+
+            const diseaseConfidence =
+                document.getElementById('disease-confidence');
+
+            if (diseaseName) {
+                diseaseName.textContent =
+                    formatDiseaseName(data.disease);
+            }
+
+            if (diseaseConfidence) {
+                diseaseConfidence.textContent =
+                    `${(Number(data.confidence) * 100).toFixed(1)}%`;
+            }
+
+            statusBox?.classList.add('hidden');
+            resultBox?.classList.remove('hidden');
+
+        } catch (error) {
+            console.error("Disease API Error:", error);
+
+            if (statusBox) {
+                statusBox.textContent =
+                    `❌ ${error.message}`;
+                statusBox.classList.remove('hidden');
+            }
+
+        } finally {
+            submitBtn.disabled = false;
+            btnText?.classList.remove('hidden');
+            btnLoading?.classList.add('hidden');
+        }
+    });
+});
+
+
+function formatDiseaseName(name) {
+    const labels = {
+        Leaf_Algal: "Bệnh tảo đỏ trên lá",
+        Leaf_Blight: "Bệnh cháy lá",
+        Leaf_Colletotrichum: "Bệnh thán thư trên lá",
+        Leaf_Healthy: "Lá khỏe mạnh",
+        Leaf_Phomopsis: "Bệnh Phomopsis trên lá",
+        Leaf_Rhizoctonia: "Bệnh Rhizoctonia trên lá",
+        anthracnose_disease: "Bệnh thán thư",
+        canker_disease: "Bệnh loét thân/cành",
+        fruit_rot: "Bệnh thối trái",
+        mealybug_infestation: "Rệp sáp",
+        pink_disease: "Bệnh nấm hồng",
+        sooty_mold: "Bệnh nấm bồ hóng",
+        stem_blight: "Bệnh cháy thân",
+        "stem_cracking_ gummosis": "Nứt thân, chảy gôm",
+        thrips_disease: "Bọ trĩ gây hại",
+        yellow_leaf: "Vàng lá"
+    };
+
+    return labels[name] || name;
 }
