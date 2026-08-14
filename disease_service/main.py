@@ -20,7 +20,13 @@ app.add_middleware(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "durian_disease_model.onnx")
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "..",
+    "server",
+    "ai_models",
+    "durian_disease.onnx"
+)
 
 CLASS_NAMES = [
     "Leaf_Algal",
