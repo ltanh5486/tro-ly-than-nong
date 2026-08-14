@@ -175,11 +175,72 @@
 
         <main class="dashboard-panel" id="dashboard-panel" aria-label="Khu vực hiển thị kết quả phân tích">
 
-            <div class="error-banner hidden" id="error-banner" role="alert">
-                <span class="error-icon">⚠️</span>
-                <span class="error-message" id="error-message"></span>
-                <button class="error-close" id="error-close" aria-label="Đóng thông báo lỗi">&times;</button>
-            </div>
+           <section class="card mb-6" id="disease-detection-card">
+    <div class="flex items-center justify-between gap-4 mb-4">
+        <div>
+            <h3 class="card-title">🔬 Nhận diện bệnh sầu riêng bằng AI</h3>
+            <p class="text-sm text-gray-600 mt-1">
+                Tải ảnh lá, thân hoặc trái sầu riêng để hệ thống hỗ trợ nhận diện bệnh.
+            </p>
+        </div>
+    </div>
+
+    <form id="disease-form" class="space-y-4">
+        <div>
+            <label for="disease-image" class="form-label">
+                📷 Chọn ảnh cần kiểm tra
+            </label>
+
+            <input
+                type="file"
+                id="disease-image"
+                accept="image/jpeg,image/png,image/webp"
+                class="form-input"
+                required
+            >
+        </div>
+
+        <div id="disease-preview-wrap" class="hidden">
+            <img
+                id="disease-preview"
+                alt="Ảnh sầu riêng cần nhận diện"
+                class="max-h-72 rounded-lg border border-gray-200 object-contain"
+            >
+        </div>
+
+        <button
+            type="submit"
+            id="disease-submit"
+            class="btn-analyze"
+        >
+            <span id="disease-btn-text">🧠 Nhận diện bệnh</span>
+            <span id="disease-btn-loading" class="hidden">
+                Đang phân tích ảnh...
+            </span>
+        </button>
+    </form>
+
+    <div id="disease-status" class="hidden mt-4"></div>
+
+    <div id="disease-result" class="hidden mt-5 p-4 rounded-lg border border-leaf/20 bg-white">
+        <h4 class="font-bold text-primary mb-3">Kết quả nhận diện</h4>
+
+        <p>
+            <strong>Bệnh dự đoán:</strong>
+            <span id="disease-name"></span>
+        </p>
+
+        <p class="mt-2">
+            <strong>Độ tin cậy:</strong>
+            <span id="disease-confidence"></span>
+        </p>
+
+        <p id="disease-disclaimer" class="text-sm text-gray-600 mt-3">
+            Kết quả từ ảnh chỉ mang tính hỗ trợ. Cần kết hợp triệu chứng,
+            bộ phận cây, điều kiện môi trường và kiểm tra thực địa.
+        </p>
+    </div>
+</section>
 
 
             <div class="results-container hidden" id="results-container">
