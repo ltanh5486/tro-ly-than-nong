@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "disease_service/main.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": [
+          "server/ai_models/durian_disease.onnx"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "disease_service/main.py"
+    }
+  ]
+}
