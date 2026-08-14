@@ -9,7 +9,7 @@ const CONFIG = {
     API_BASE_URL: window.location.origin + "/api",
     SIMULATED_DELAY: 2000, 
     };
-const DISEASE_API_URL = "URL_VERCEL_DISEASE_SERVICE_CUA_BAN";
+const DISEASE_API_URL = "https://tro-ly-than-nong-pbt1.vercel.app";
 
 // ── State Management ─────────────────────────────────────────
 let state = {
