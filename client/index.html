@@ -244,6 +244,8 @@
                         </div>
                     </div>
 
+    
+
                     <div class="card chart-card chart-small">
                         <h3 class="card-title">📈 Dự báo giá</h3>
                         <div class="chart-wrapper" id="price-chart-wrapper">
@@ -264,9 +266,85 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- NHẬN DIỆN BỆNH SẦU RIÊNG -->
+                <div class="card disease-card" id="disease-card">
+                    <h3 class="card-title">🌿 Nhận diện bệnh sầu riêng</h3>
+
+                    <p class="disease-description">
+                        Tải ảnh lá, thân hoặc trái sầu riêng để AI hỗ trợ nhận diện bệnh.
+                    </p>
+
+                    <div class="disease-upload-area">
+                        <input
+                            type="file"
+                            id="disease-image"
+                            accept="image/jpeg,image/png,image/webp"
+                            hidden
+                        >
+
+                        <label for="disease-image" class="disease-upload-label">
+                            <span class="disease-upload-icon">📷</span>
+                            <span>Chọn ảnh sầu riêng</span>
+                        </label>
+
+                        <span id="disease-file-name" class="disease-file-name">
+                            Chưa chọn ảnh
+                        </span>
+                    </div>
+
+                    <div id="disease-preview-wrapper"
+                         class="disease-preview-wrapper hidden">
+                        <img
+                            id="disease-preview"
+                            class="disease-preview"
+                            alt="Ảnh sầu riêng cần nhận diện"
+                        >
+                    </div>
+
+                    <button
+                        type="button"
+                        id="disease-predict-btn"
+                        class="btn-analyze disease-predict-btn"
+                        disabled
+                    >
+                        🔬 Phân tích bệnh
+                    </button>
+
+                    <div id="disease-loading" class="hidden disease-loading">
+                        ⏳ AI đang phân tích ảnh...
+                    </div>
+
+                    <div id="disease-error"
+                         class="hidden disease-error">
+                    </div>
+
+                    <div id="disease-result"
+                         class="hidden disease-result">
+
+                        <div class="disease-result-header">
+                            <span>🔎 Kết quả nhận diện</span>
+                        </div>
+
+                        <div class="disease-main-result">
+                            <strong id="disease-name">--</strong>
+                            <span id="disease-confidence">--</span>
+                        </div>
+
+                        <div id="disease-top3"
+                             class="disease-top3">
+                        </div>
+
+                        <p class="disease-disclaimer">
+                            ⚠️ Kết quả AI chỉ mang tính hỗ trợ.
+                            Cần kết hợp triệu chứng, bộ phận cây,
+                            điều kiện môi trường và kiểm tra thực địa.
+                        </p>
+                    </div>
+                </div>
+
             </div>
         </main>
-    </div>
 
     <button
         class="floating-btn hidden"

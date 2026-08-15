@@ -755,7 +755,7 @@ function initChat() {
 
     // Mở/Đóng chat
     chatToggle.addEventListener('click', () => {
-        chatWidget.classList.remove('closed');
+        chatWidget.classList.toggle('closed');
         // Hiện gợi ý khi mở chat nếu chưa có tin nhắn nào mới
         if (chatHistory.length === 0) {
             renderChatSuggestions([
@@ -1273,3 +1273,353 @@ function initUserMenu() {
         e.stopPropagation();
     });
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 🌿 NHẬN DIỆN BỆNH SẦU RIÊNG
+// ═══════════════════════════════════════════════════════════════
+
+const DISEASE_NAMES_VI = {
+    "Leaf_Algal": "Đốm rong trên lá",
+    "Leaf_Blight": "Cháy lá",
+    "Leaf_Colletotrichum": "Bệnh Colletotrichum trên lá",
+    "Leaf_Healthy": "Lá khỏe mạnh",
+    "Leaf_Phomopsis": "Bệnh Phomopsis trên lá",
+    "Leaf_Rhizoctonia": "Bệnh Rhizoctonia trên lá",
+    "anthracnose_disease": "Bệnh thán thư",
+    "canker_disease": "Bệnh loét thân/cành",
+    "fruit_rot": "Thối trái",
+    "mealybug_infestation": "Rệp sáp",
+    "pink_disease": "Bệnh nấm hồng",
+    "sooty_mold": "Nấm bồ hóng",
+    "stem_blight": "Cháy thân",
+    "stem_cracking_ gummosis": "Nứt thân, chảy nhựa",
+    "thrips_disease": "Bọ trĩ",
+    "yellow_leaf": "Vàng lá"
+};
+
+function initDiseaseDetection() {
+    const imageInput = document.getElementById('disease-image');
+    const predictBtn = document.getElementById('disease-predict-btn');
+    const preview = document.getElementById('disease-preview');
+    const previewWrapper = document.getElementById('disease-preview-wrapper');
+    const fileName = document.getElementById('disease-file-name');
+
+    if (!imageInput || !predictBtn) return;
+
+    imageInput.addEventListener('change', () => {
+        resetDiseaseResult();
+
+        const file = imageInput.files?.[0];
+
+        if (!file) {
+            predictBtn.disabled = true;
+            if (fileName) fileName.textContent = 'Chưa chọn ảnh';
+            previewWrapper?.classList.add('hidden');
+            return;
+        }
+
+        const allowedTypes = [
+            'image/jpeg',
+            'image/png',
+            'image/webp'
+        ];
+
+        if (!allowedTypes.includes(file.type)) {
+            showDiseaseError(
+                'Chỉ hỗ trợ ảnh JPG, JPEG, PNG hoặc WEBP.'
+            );
+            imageInput.value = '';
+            predictBtn.disabled = true;
+            if (fileName) fileName.textContent = 'Chưa chọn ảnh';
+            previewWrapper?.classList.add('hidden');
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            showDiseaseError(
+                'Ảnh vượt quá dung lượng tối đa 10 MB.'
+            );
+            imageInput.value = '';
+            predictBtn.disabled = true;
+            if (fileName) fileName.textContent = 'Chưa chọn ảnh';
+            previewWrapper?.classList.add('hidden');
+            return;
+        }
+
+        if (fileName) {
+            fileName.textContent = file.name;
+        }
+
+        predictBtn.disabled = false;
+
+        const objectUrl = URL.createObjectURL(file);
+
+        if (preview) {
+            preview.src = objectUrl;
+            preview.onload = () => {
+                URL.revokeObjectURL(objectUrl);
+            };
+        }
+
+        previewWrapper?.classList.remove('hidden');
+    });
+
+    predictBtn.addEventListener(
+        'click',
+        handleDiseasePrediction
+    );
+}
+
+
+async function handleDiseasePrediction() {
+    const imageInput = document.getElementById('disease-image');
+    const predictBtn = document.getElementById('disease-predict-btn');
+    const loading = document.getElementById('disease-loading');
+    const resultBox = document.getElementById('disease-result');
+    const errorBox = document.getElementById('disease-error');
+
+    const file = imageInput?.files?.[0];
+
+    if (!file) {
+        showDiseaseError(
+            'Vui lòng chọn ảnh sầu riêng trước.'
+        );
+        return;
+    }
+
+    predictBtn.disabled = true;
+    loading?.classList.remove('hidden');
+    resultBox?.classList.add('hidden');
+    errorBox?.classList.add('hidden');
+
+    const formData = new FormData();
+
+    formData.append('image', file);
+    formData.append('plant_part', 'leaf');
+    formData.append('symptoms', '');
+
+    const selectedLocation =
+        document.getElementById('location-select')?.value || '';
+
+    formData.append('location', selectedLocation);
+
+    try {
+        const headers = {};
+
+        if (state.user?.token) {
+            headers['Authorization'] =
+                `Bearer ${state.user.token}`;
+        }
+
+        const response = await fetch(
+            `${CONFIG.API_BASE_URL}/disease/predict`,
+            {
+                method: 'POST',
+                headers,
+                body: formData
+            }
+        );
+
+        let data;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error(
+                `Máy chủ trả về dữ liệu không hợp lệ (${response.status}).`
+            );
+        }
+
+        if (!response.ok) {
+            let message = '';
+
+            if (Array.isArray(data.detail)) {
+                message = data.detail
+                    .map(item => item.msg || JSON.stringify(item))
+                    .join('; ');
+            } else {
+                message =
+                    data.detail ||
+                    `Lỗi máy chủ (${response.status})`;
+            }
+
+            throw new Error(message);
+        }
+
+        if (!data.prediction) {
+            throw new Error(
+                'Máy chủ không trả về kết quả nhận diện.'
+            );
+        }
+
+        renderDiseaseResult(data.prediction);
+
+    } catch (error) {
+        console.error(
+            'Disease Detection Error:',
+            error
+        );
+
+        showDiseaseError(
+            error.message ||
+            'Không thể phân tích ảnh. Vui lòng thử lại.'
+        );
+
+    } finally {
+        loading?.classList.add('hidden');
+
+        if (imageInput?.files?.[0]) {
+            predictBtn.disabled = false;
+        }
+    }
+}
+
+
+function renderDiseaseResult(prediction) {
+    const resultBox =
+        document.getElementById('disease-result');
+
+    const diseaseName =
+        document.getElementById('disease-name');
+
+    const confidence =
+        document.getElementById('disease-confidence');
+
+    const top3 =
+        document.getElementById('disease-top3');
+
+    const errorBox =
+        document.getElementById('disease-error');
+
+    errorBox?.classList.add('hidden');
+
+    const rawDisease =
+        prediction.disease || '';
+
+    const viName =
+        DISEASE_NAMES_VI[rawDisease] ||
+        rawDisease ||
+        'Chưa xác định';
+
+    if (diseaseName) {
+        diseaseName.textContent = viName;
+    }
+
+    const mainConfidence =
+        Number(prediction.confidence || 0);
+
+    if (confidence) {
+        confidence.textContent =
+            `${(mainConfidence * 100).toFixed(1)}%`;
+    }
+
+    if (top3) {
+        top3.innerHTML = '';
+    }
+
+    const predictions =
+        Array.isArray(prediction.top_predictions)
+            ? prediction.top_predictions
+            : [];
+
+    predictions.forEach((item, index) => {
+        const row =
+            document.createElement('div');
+
+        row.className =
+            'disease-top-item';
+
+        const itemConfidence =
+            Number(item.confidence || 0);
+
+        const percent =
+            Math.max(
+                0,
+                Math.min(
+                    100,
+                    itemConfidence * 100
+                )
+            );
+
+        const name =
+            DISEASE_NAMES_VI[item.class] ||
+            item.class ||
+            'Không xác định';
+
+        row.innerHTML = `
+            <span class="disease-top-name">
+                ${index + 1}. ${escapeDiseaseHtml(name)}
+            </span>
+
+            <div class="disease-top-bar">
+                <div
+                    class="disease-top-bar-fill"
+                    style="width: ${percent.toFixed(1)}%"
+                ></div>
+            </div>
+
+            <span class="disease-top-confidence">
+                ${percent.toFixed(1)}%
+            </span>
+        `;
+
+        top3?.appendChild(row);
+    });
+
+    resultBox?.classList.remove('hidden');
+
+    resultBox?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+    });
+}
+
+
+function showDiseaseError(message) {
+    const errorBox =
+        document.getElementById('disease-error');
+
+    const resultBox =
+        document.getElementById('disease-result');
+
+    const loading =
+        document.getElementById('disease-loading');
+
+    resultBox?.classList.add('hidden');
+    loading?.classList.add('hidden');
+
+    if (errorBox) {
+        errorBox.textContent =
+            `⚠️ ${message}`;
+        errorBox.classList.remove('hidden');
+    }
+}
+
+
+function resetDiseaseResult() {
+    const resultBox =
+        document.getElementById('disease-result');
+
+    const errorBox =
+        document.getElementById('disease-error');
+
+    resultBox?.classList.add('hidden');
+    errorBox?.classList.add('hidden');
+}
+
+
+function escapeDiseaseHtml(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+
+// Khởi tạo nhận diện bệnh khi trang load xong
+document.addEventListener(
+    'DOMContentLoaded',
+    initDiseaseDetection
+);
