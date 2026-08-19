@@ -148,7 +148,8 @@ def get_weather(location_name=None):
                 "current": "temperature_2m,relative_humidity_2m,precipitation,rain,showers,weather_code",
                 "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
                 "timezone": "Asia/Ho_Chi_Minh",
-                "forecast_days": 1,
+                "past_days": 3,
+                "forecast_days": 3,
             },
             timeout=8,
         )
@@ -157,9 +158,35 @@ def get_weather(location_name=None):
         current = data.get("current", {})
         daily = data.get("daily", {})
 
-        daily_temp_max = _first_value(daily.get("temperature_2m_max"), 28.5)
-        daily_temp_min = _first_value(daily.get("temperature_2m_min"), 19.0)
-        daily_precipitation = _first_value(daily.get("precipitation_sum"), 0.0)
+        # Dữ liệu thời tiết 3 ngày trước + hôm nay + 2 ngày tới
+        daily_times = daily.get("time", [])
+        daily_max = daily.get("temperature_2m_max", [])
+        daily_min = daily.get("temperature_2m_min", [])
+        daily_rain = daily.get("precipitation_sum", [])
+
+        weather_history = []
+
+        for i, day in enumerate(daily_times):
+            weather_history.append({
+                "date": day,
+                "temp_max": daily_max[i] if i < len(daily_max) else None,
+                "temp_min": daily_min[i] if i < len(daily_min) else None,
+                "precipitation": daily_rain[i] if i < len(daily_rain) else None,
+            })
+
+        # Với past_days=3, phần tử index 3 là ngày hiện tại
+        today_idx = 3 if len(daily_times) > 3 else 0
+
+        daily_temp_max = (
+            daily_max[today_idx] if today_idx < len(daily_max) else 28.5
+        )
+        daily_temp_min = (
+            daily_min[today_idx] if today_idx < len(daily_min) else 19.0
+        )
+        daily_precipitation = (
+            daily_rain[today_idx] if today_idx < len(daily_rain) else 0.0
+        )
+
         current_temp = current.get("temperature_2m", daily_temp_max)
         current_precipitation = current.get("precipitation", 0.0)
 
@@ -172,10 +199,15 @@ def get_weather(location_name=None):
             "humidity": current.get("relative_humidity_2m"),
             "weather_code": current.get("weather_code"),
             "weather_time": current.get("time"),
+            "daily_history": weather_history,
             "source": "open-meteo",
             "is_fallback": False,
         }
-        _WEATHER_CACHE[location_name] = {"fetched_at": now, "data": weather}
+
+        _WEATHER_CACHE[location_name] = {
+            "fetched_at": now,
+            "data": weather
+        }
         return weather
     except Exception as e:
         print(f"Error fetching weather: {e}")
@@ -297,33 +329,46 @@ def predict_price(crop_name, current_price, location_name="Phường B'Lao"):
 def get_latest_price(crop_name):
     """
     Lấy giá mới nhất từ file CSV dữ liệu lịch sử.
-    Nếu không tìm thấy, trả về giá mặc định an toàn.
+    Chỉ trả giá khi hệ thống thực sự có dữ liệu.
+    Nếu cây chưa có dữ liệu giá thì trả về None.
     """
     try:
         file_base = CROP_FILE_MAP.get(crop_name)
+
+        # Hỗ trợ một số cách gọi tên khác nhau
         if not file_base:
-            # Fallback nếu không khớp tên (cho sầu riêng, chè...)
-            clean_name = crop_name.lower()
-            if "sầu riêng" in clean_name: file_base = "durian_ri6"
-            elif "chè" in clean_name or "ô long" in clean_name: file_base = "oolong"
-            else: return 120000.0 # Giá mặc định chung
+            clean_name = crop_name.lower().strip()
+
+            if "sầu riêng" in clean_name or "ri6" in clean_name:
+                file_base = "durian_ri6"
+            elif "robusta" in clean_name or "cà phê" in clean_name:
+                file_base = "robusta"
+            elif "arabica" in clean_name:
+                file_base = "arabica"
+            elif "chè" in clean_name or "ô long" in clean_name or "oolong" in clean_name:
+                file_base = "oolong"
+            else:
+                # Không có dataset -> tuyệt đối không bịa giá
+                return None
 
         file_name = f"processed_{file_base}.csv"
         csv_path = os.path.join(DATA_DIR, file_name)
-        
-        if os.path.exists(csv_path):
-            # Chỉ đọc dòng cuối cùng để tiết kiệm RAM
-            df = pd.read_csv(csv_path)
-            if not df.empty:
-                return float(df.iloc[-1]['price_vnd'])
+
+        if not os.path.exists(csv_path):
+            return None
+
+        df = pd.read_csv(csv_path)
+
+        if df.empty or "price_vnd" not in df.columns:
+            return None
+
+        price = df.iloc[-1]["price_vnd"]
+
+        if pd.isna(price):
+            return None
+
+        return float(price)
+
     except Exception as e:
         print(f"⚠️ Lỗi khi lấy giá mới nhất cho {crop_name}: {e}")
-    
-    # Giá fallback dựa trên loại cây nếu có lỗi
-    fallbacks = {
-        "Cà phê Robusta": 120000.0,
-        "Cà phê Arabica": 150000.0,
-        "Sầu riêng Ri6": 115000.0,
-        "Chè Ô Long": 250000.0
-    }
-    return fallbacks.get(crop_name, 100000.0)
+        return None

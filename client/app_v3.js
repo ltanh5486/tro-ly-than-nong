@@ -749,81 +749,500 @@ function initChat() {
     const chatClose = document.getElementById('chat-close');
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
-    const chatMessages = document.getElementById('chat-messages');
 
-    if (!chatWidget || !chatToggle) return;
+    if (!chatWidget || !chatToggle || !chatForm || !chatInput) return;
 
-    // Mở/Đóng chat
+    // ============================================================
+    // MỞ / ĐÓNG CHAT
+    // ============================================================
+
     chatToggle.addEventListener('click', () => {
-        chatWidget.classList.toggle('closed');
-        // Hiện gợi ý khi mở chat nếu chưa có tin nhắn nào mới
-        if (chatHistory.length === 0) {
-            renderChatSuggestions([
-                "Giá sầu riêng hôm nay?",
-                "Kỹ thuật bón phân cà phê",
-                "Phòng bệnh rỉ sắt",
-                "Cách tăng năng suất chè"
-            ]);
-        }
-    });
-    chatClose.addEventListener('click', () => chatWidget.classList.add('closed'));
+    chatWidget.classList.toggle('closed');
 
-    // Gửi tin nhắn
+    if (
+        chatHistory.length === 0 &&
+        !diseaseDiagnosticSession.active
+    ) {
+        addMessage(
+            'assistant',
+            'Xin chào! Hôm nay tôi có thể giúp gì cho bạn?'
+        );
+
+        chatHistory.push({
+            role: 'assistant',
+            content: 'Xin chào! Hôm nay tôi có thể giúp gì cho bạn?'
+        });
+
+        renderChatSuggestions([
+            "Giá sầu riêng hôm nay?",
+            "Kỹ thuật bón phân cà phê",
+            "Phòng bệnh rỉ sắt",
+            "Cách tăng năng suất chè"
+        ]);
+    }
+});   // <-- DÒNG NÀY ĐANG BỊ THIẾU
+
+chatClose?.addEventListener('click', () => {
+    chatWidget.classList.add('closed');
+});
+
+    chatClose?.addEventListener('click', () => {
+        chatWidget.classList.add('closed');
+    });
+
+    // ============================================================
+    // GỬI TIN NHẮN
+    // ============================================================
+
     chatForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+
         const text = chatInput.value.trim();
         if (!text) return;
 
-        // 1. Add user message
         addMessage('user', text);
         chatInput.value = '';
-        
-        // 2. Add typing indicator
+
         const typingId = addTypingIndicator();
-        
+
         try {
-            // Đã loại bỏ giả lập suy nghĩ để tăng tốc độ phản hồi
 
-            // Lấy ngữ cảnh hiện tại từ form chính
-            const context = {
-                location: document.getElementById('location-select').value,
-                crop: document.getElementById('crop-select').value,
-                mode: document.querySelector('input[name="farming-mode"]:checked')?.value || "Kinh doanh",
-                capital: parseFloat(document.getElementById('capital-slider').value),
-                area_ha: parseFloat(document.getElementById('area-input').value)
-            };
+            // ====================================================
+            // A. ĐANG TRONG PHIÊN CHẨN ĐOÁN BỆNH
+            // ====================================================
 
-            const response = await fetch(`${CONFIG.API_BASE_URL}/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${state.user?.token}`
-                },
-                body: JSON.stringify({
-                    message: text,
-                    history: chatHistory,
-                    context: context
-                })
-            });
+            if (diseaseDiagnosticSession.active) {
+
+                // Lưu câu trả lời vào field chatbot đang hỏi
+                if (diseaseDiagnosticSession.currentField) {
+                    diseaseDiagnosticSession.answers[
+                        diseaseDiagnosticSession.currentField
+                    ] = text;
+                }
+
+                const answers =
+                    diseaseDiagnosticSession.answers;
+
+                const formData = new FormData();
+
+                // ------------------------------------------------
+                // Thông tin ảnh / bệnh AI đã nhận diện
+                // ------------------------------------------------
+
+                formData.append(
+                    'class_name',
+                    diseaseDiagnosticSession.disease || ''
+                );
+
+                formData.append(
+                    'confidence',
+                    String(
+                        diseaseDiagnosticSession.confidence || 0
+                    )
+                );
+
+                // ------------------------------------------------
+                // Triệu chứng
+                // ------------------------------------------------
+
+                formData.append(
+                    'symptoms',
+                    answers.symptoms || ''
+                );
+
+                formData.append(
+                    'symptom_duration_days',
+                    answers.symptom_duration_days || ''
+                );
+
+                // ------------------------------------------------
+                // Tưới tiêu
+                // ------------------------------------------------
+
+                formData.append(
+                    'irrigation_method',
+                    answers.irrigation_method || ''
+                );
+
+                formData.append(
+                    'irrigation_amount',
+                    answers.irrigation_amount || ''
+                );
+
+                formData.append(
+                    'irrigation_frequency',
+                    answers.irrigation_frequency || ''
+                );
+
+                // ------------------------------------------------
+                // Phân bón
+                // ------------------------------------------------
+
+                formData.append(
+                    'fertilizer_name',
+                    answers.fertilizer_name || ''
+                );
+
+                formData.append(
+                    'fertilizer_amount',
+                    answers.fertilizer_amount || ''
+                );
+
+                formData.append(
+                    'fertilizer_days_ago',
+                    answers.fertilizer_days_ago || ''
+                );
+
+                // ------------------------------------------------
+                // Thuốc BVTV / thuốc trừ sâu
+                // ------------------------------------------------
+
+                formData.append(
+                    'pesticide_name',
+                    answers.pesticide_name || ''
+                );
+
+                formData.append(
+                    'pesticide_amount',
+                    answers.pesticide_amount || ''
+                );
+
+                formData.append(
+                    'pesticide_days_ago',
+                    answers.pesticide_days_ago || ''
+                );
+
+                formData.append(
+                    'pesticide_mixed',
+                    answers.pesticide_mixed || ''
+                );
+
+                // ------------------------------------------------
+                // Vùng + thời tiết
+                // ------------------------------------------------
+
+                formData.append(
+                    'location',
+                    answers.location || ''
+                );
+
+                formData.append(
+                    'temperature',
+                    answers.temperature || ''
+                );
+
+                formData.append(
+                    'humidity',
+                    answers.humidity || ''
+                );
+
+                formData.append(
+                    'rainfall',
+                    answers.rainfall || ''
+                );
+
+                const headers = {};
+
+                if (state.user?.token) {
+                    headers['Authorization'] =
+                        `Bearer ${state.user.token}`;
+                }
+
+                // ------------------------------------------------
+                // Gọi diagnostic engine
+                // ------------------------------------------------
+
+                const response = await fetch(
+                    `${CONFIG.API_BASE_URL}/disease/diagnose`,
+                    {
+                        method: 'POST',
+                        headers,
+                        body: formData
+                    }
+                );
+
+                const data = await response.json();
+
+                removeTypingIndicator(typingId);
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.detail ||
+                        `Lỗi chẩn đoán (${response.status})`
+                    );
+                }
+
+                // =================================================
+                // ENGINE CẦN HỎI THÊM
+                // =================================================
+
+                if (
+                    data.status === 'need_more_information' &&
+                    data.next_question
+                ) {
+
+                    diseaseDiagnosticSession.currentField =
+                        data.next_question.field || null;
+
+                    addMessage(
+                        'assistant',
+                        data.next_question.question ||
+                        'Bà con vui lòng cung cấp thêm thông tin.'
+                    );
+
+                    if (data.next_question.suggestions) {
+                        renderChatSuggestions(
+                            data.next_question.suggestions
+                        );
+                    } else {
+                        renderChatSuggestions([]);
+                    }
+
+                    return;
+                }
+
+                // =================================================
+                // ĐÃ ĐỦ DỮ LIỆU → HIỂN THỊ KẾT LUẬN
+                // =================================================
+
+                diseaseDiagnosticSession.currentField = null;
+
+                let finalText =
+                    data.answer ||
+                    data.message ||
+                    data.conclusion ||
+                    '';
+
+                // Nếu backend trả kết quả dạng cấu trúc
+                if (!finalText) {
+
+                    const parts = [];
+
+                    if (data.diagnosis) {
+                        parts.push(
+                            `**Nhận định:** ${data.diagnosis}`
+                        );
+                    }
+
+                    if (data.likely_cause) {
+                        parts.push(
+                            `**Nguyên nhân có khả năng:** ${data.likely_cause}`
+                        );
+                    }
+
+                    if (data.management) {
+                        if (Array.isArray(data.management)) {
+                            parts.push(
+                                '**Khuyến nghị chăm sóc:**\n' +
+                                data.management
+                                    .map(x => `- ${x}`)
+                                    .join('\n')
+                            );
+                        } else {
+                            parts.push(
+                                `**Khuyến nghị chăm sóc:** ${data.management}`
+                            );
+                        }
+                    }
+
+                    if (data.pesticide_note) {
+                        parts.push(
+                            `**Thuốc BVTV:** ${data.pesticide_note}`
+                        );
+                    }
+
+                    if (data.fertilizer_note) {
+                        parts.push(
+                            `**Phân bón:** ${data.fertilizer_note}`
+                        );
+                    }
+
+                    finalText = parts.join('\n\n');
+                }
+
+                if (!finalText) {
+                    finalText =
+                        'Đã thu thập đủ thông tin thực địa. ' +
+                        'Hệ thống đã hoàn tất bước chẩn đoán tổng hợp.';
+                }
+
+                addMessage('assistant', finalText);
+
+                renderChatSuggestions([
+                    "Tôi nên chăm sóc cây thế nào?",
+                    "Có cần dùng thuốc không?",
+                    "Nên điều chỉnh tưới thế nào?",
+                    "Phân bón có cần thay đổi không?"
+                ]);
+
+// =================================================
+// LƯU MEMORY SAU CHẨN ĐOÁN
+// =================================================
+
+diseaseDiagnosticSession.active = false;
+diseaseDiagnosticSession.completed = true;
+
+diseaseDiagnosticSession.finalDiagnosis = {
+    status: data.status || '',
+    diagnosis: data.diagnosis || '',
+    answer: finalText,
+    management: data.management || [],
+    pesticide_note: data.pesticide_note || '',
+    fertilizer_note: data.fertilizer_note || '',
+    likely_cause: data.likely_cause || '',
+    diagnostic_confidence:
+        data.diagnostic_confidence || null,
+    confounding_factors:
+        data.confounding_factors || []
+};
+
+// Context đầy đủ cho các câu hỏi tiếp theo
+window.latestDiseaseContext = {
+    ...(diseaseDiagnosticSession.diseaseContext || {}),
+
+    class_name:
+        diseaseDiagnosticSession.disease,
+
+    confidence:
+        diseaseDiagnosticSession.confidence,
+
+    diagnostic_completed: true,
+
+    diagnostic_answers: {
+        ...diseaseDiagnosticSession.answers
+    },
+
+    final_diagnosis: {
+        ...diseaseDiagnosticSession.finalDiagnosis
+    }
+};
+
+                return;
+            }
+
+            // ====================================================
+            // B. CHAT NÔNG NGHIỆP BÌNH THƯỜNG
+            // ====================================================
+
+const context = {
+    location:
+        document.getElementById('location-select')?.value || '',
+
+    crop:
+        document.getElementById('crop-select')?.value || '',
+
+    mode:
+        document.querySelector(
+            'input[name="farming-mode"]:checked'
+        )?.value || "Kinh doanh",
+
+    capital:
+        parseFloat(
+            document.getElementById('capital-slider')?.value || 0
+        ),
+
+    area_ha:
+        parseFloat(
+            document.getElementById('area-input')?.value || 0
+        ),
+
+    // ============================================
+    // MEMORY BỆNH GẦN NHẤT
+    // ============================================
+
+    disease_context:
+        window.latestDiseaseContext || null,
+
+    disease_session: {
+        completed:
+            diseaseDiagnosticSession.completed,
+
+        disease:
+            diseaseDiagnosticSession.disease,
+
+        confidence:
+            diseaseDiagnosticSession.confidence,
+
+        answers:
+            diseaseDiagnosticSession.answers,
+
+        final_diagnosis:
+            diseaseDiagnosticSession.finalDiagnosis
+    }
+};
+
+const response = await fetch(
+    `${CONFIG.API_BASE_URL}/chat`,
+    {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(state.user?.token
+                ? { 'Authorization': `Bearer ${state.user.token}` }
+                : {})
+        },
+        body: JSON.stringify({
+            message: text,
+            history: chatHistory,
+            context: context
+        })
+    }
+);
+
 
             const data = await response.json();
+
             removeTypingIndicator(typingId);
 
             if (data.status === 'success' || data.answer) {
-                addMessage('assistant', data.answer);
-                if (data.suggestions) renderChatSuggestions(data.suggestions);
-                
-                // Cập nhật lịch sử
-                chatHistory.push({ role: 'user', content: text });
-                chatHistory.push({ role: 'assistant', content: data.answer });
-                if (chatHistory.length > 10) chatHistory.splice(0, 2); 
+
+                addMessage(
+                    'assistant',
+                    data.answer ||
+                    'Đã nhận được câu hỏi.'
+                );
+
+                if (data.suggestions) {
+                    renderChatSuggestions(
+                        data.suggestions
+                    );
+                }
+
+                chatHistory.push({
+                    role: 'user',
+                    content: text
+                });
+
+                chatHistory.push({
+                    role: 'assistant',
+                    content: data.answer || ''
+                });
+
+                if (chatHistory.length > 10) {
+                    chatHistory.splice(0, 2);
+                }
+
             } else {
-                addMessage('assistant', '⚠️ Xin lỗi bà con, tôi đang bị gián đoạn kết nối. Bà con thử lại sau nhé!');
+
+                addMessage(
+                    'assistant',
+                    '⚠️ Xin lỗi bà con, tôi đang bị gián đoạn kết nối. Bà con thử lại sau nhé!'
+                );
             }
+
         } catch (error) {
+
             removeTypingIndicator(typingId);
-            console.error("Chat Error:", error);
-            addMessage('assistant', '❌ Lỗi kết nối máy chủ AI.');
+
+            console.error(
+                "Chat / Disease Diagnostic Error:",
+                error
+            );
+
+            addMessage(
+                'assistant',
+                `❌ ${error.message || 'Lỗi kết nối máy chủ AI.'}`
+            );
         }
     });
 }
@@ -1277,7 +1696,87 @@ function initUserMenu() {
 // ═══════════════════════════════════════════════════════════════
 // 🌿 NHẬN DIỆN BỆNH SẦU RIÊNG
 // ═══════════════════════════════════════════════════════════════
+// ============================================================
+// 🩺 TRẠNG THÁI CHAT CHẨN ĐOÁN BỆNH SẦU RIÊNG
+// ============================================================
 
+let diseaseDiagnosticSession = {
+    active: false,
+    completed: false,
+
+    disease: '',
+    confidence: 0,
+
+    // Context nhận từ lần phân tích ảnh gần nhất
+    diseaseContext: null,
+
+    // Kết quả chẩn đoán tổng hợp cuối cùng
+    finalDiagnosis: null,
+
+    // Câu hỏi hiện tại chatbot đang chờ người dân trả lời
+    currentField: null,
+
+    // Toàn bộ thông tin thực địa đã thu thập
+    answers: {
+        symptoms: '',
+        symptom_duration_days: '',
+
+        irrigation_method: '',
+        irrigation_amount: '',
+        irrigation_frequency: '',
+
+        fertilizer_name: '',
+        fertilizer_amount: '',
+        fertilizer_days_ago: '',
+
+        pesticide_name: '',
+        pesticide_amount: '',
+        pesticide_days_ago: '',
+        pesticide_mixed: '',
+
+        location: '',
+        temperature: '',
+        humidity: '',
+        rainfall: ''
+    }
+};
+
+
+function resetDiseaseDiagnosticSession() {
+    diseaseDiagnosticSession = {
+        active: false,
+
+        disease: '',
+        confidence: 0,
+
+        diseaseContext: null,
+
+        currentField: null,
+
+        answers: {
+            symptoms: '',
+            symptom_duration_days: '',
+
+            irrigation_method: '',
+            irrigation_amount: '',
+            irrigation_frequency: '',
+
+            fertilizer_name: '',
+            fertilizer_amount: '',
+            fertilizer_days_ago: '',
+
+            pesticide_name: '',
+            pesticide_amount: '',
+            pesticide_days_ago: '',
+            pesticide_mixed: '',
+
+            location: '',
+            temperature: '',
+            humidity: '',
+            rainfall: ''
+        }
+    };
+}
 const DISEASE_NAMES_VI = {
     "Leaf_Algal": "Đốm rong trên lá",
     "Leaf_Blight": "Cháy lá",
@@ -1452,7 +1951,61 @@ async function handleDiseasePrediction() {
             );
         }
 
-        renderDiseaseResult(data.prediction);
+        renderDiseaseResult(data);
+
+// ============================================================
+// 🩺 LƯU KẾT QUẢ NHẬN DIỆN ĐỂ CHATBOT DÙNG KHI NGƯỜI DÙNG CẦN
+// KHÔNG tự mở chatbot và KHÔNG tự bắt đầu phiên hỏi đáp
+// ============================================================
+
+const prediction = data.prediction || {};
+const diseaseContext = data.disease_context || {};
+
+resetDiseaseDiagnosticSession();
+
+// Không tự kích hoạt phiên chẩn đoán
+diseaseDiagnosticSession.active = false;
+diseaseDiagnosticSession.completed = false;
+diseaseDiagnosticSession.currentField = null;
+
+diseaseDiagnosticSession.disease =
+    prediction.disease || diseaseContext.class_name || '';
+
+diseaseDiagnosticSession.confidence =
+    Number(
+        prediction.confidence ||
+        diseaseContext.confidence ||
+        0
+    );
+
+diseaseDiagnosticSession.diseaseContext =
+    diseaseContext;
+
+// Lưu vị trí hiện tại
+diseaseDiagnosticSession.answers.location =
+    selectedLocation || diseaseContext.location || '';
+
+// Lưu kết quả nhận diện để chatbot dùng nếu người dùng chủ động hỏi
+window.latestDiseaseContext = {
+    ...diseaseContext,
+
+    class_name:
+        prediction.disease ||
+        diseaseContext.class_name ||
+        '',
+
+    confidence:
+        Number(
+            prediction.confidence ||
+            diseaseContext.confidence ||
+            0
+        ),
+
+    diagnostic_completed: false,
+
+    pending_diagnostic:
+        data.diagnostic || null
+};
 
     } catch (error) {
         console.error(
@@ -1475,7 +2028,7 @@ async function handleDiseasePrediction() {
 }
 
 
-function renderDiseaseResult(prediction) {
+function renderDiseaseResult(data) {
     const resultBox =
         document.getElementById('disease-result');
 
@@ -1491,12 +2044,43 @@ function renderDiseaseResult(prediction) {
     const errorBox =
         document.getElementById('disease-error');
 
+    if (!resultBox) return;
+
     errorBox?.classList.add('hidden');
+
+    // ==========================================================
+    // LẤY DỮ LIỆU TỪ API
+    // ==========================================================
+
+    const prediction = data?.prediction || {};
+    const treatment = data?.treatment || {};
+    const pesticide = data?.pesticide || {};
+
+    const treatmentStatus =
+        data?.treatment_status || 'need_confirmation';
+
+    // ==========================================================
+    // LƯU CONTEXT BỆNH
+    // Sau này dùng để nối sang chatbot/RAG
+    // ==========================================================
+
+    if (typeof state === 'object' && state) {
+        state.latestDiseaseContext =
+            data?.disease_context || null;
+    }
+
+    window.latestDiseaseContext =
+        data?.disease_context || null;
+
+    // ==========================================================
+    // KẾT QUẢ NHẬN DIỆN CHÍNH
+    // ==========================================================
 
     const rawDisease =
         prediction.disease || '';
 
     const viName =
+        treatment.vi_name ||
         DISEASE_NAMES_VI[rawDisease] ||
         rawDisease ||
         'Chưa xác định';
@@ -1512,6 +2096,10 @@ function renderDiseaseResult(prediction) {
         confidence.textContent =
             `${(mainConfidence * 100).toFixed(1)}%`;
     }
+
+    // ==========================================================
+    // TOP 3 KẾT QUẢ
+    // ==========================================================
 
     if (top3) {
         top3.innerHTML = '';
@@ -1566,9 +2154,404 @@ function renderDiseaseResult(prediction) {
         top3?.appendChild(row);
     });
 
-    resultBox?.classList.remove('hidden');
+    // ==========================================================
+    // XÓA KẾT QUẢ XỬ LÝ CŨ
+    // Khi người dùng phân tích ảnh mới
+    // ==========================================================
 
-    resultBox?.scrollIntoView({
+    resultBox
+        .querySelector('.disease-treatment-wrapper')
+        ?.remove();
+
+    // ==========================================================
+    // TẠO KHỐI HƯỚNG XỬ LÝ + THUỐC
+    // ==========================================================
+
+    const treatmentWrapper =
+        document.createElement('div');
+
+    treatmentWrapper.className =
+        'disease-treatment-wrapper';
+
+    // ==========================================================
+    // NGUYÊN NHÂN / NHẬN ĐỊNH
+    // ==========================================================
+
+    const likelyCause =
+        treatment.likely_cause
+            ? `
+                <div class="disease-advice-section">
+                    <h4>
+                        🧬 Nguyên nhân / nhận định
+                    </h4>
+
+                    <p>
+                        ${escapeDiseaseHtml(
+                            treatment.likely_cause
+                        )}
+                    </p>
+                </div>
+            `
+            : '';
+
+    // ==========================================================
+    // TRIỆU CHỨNG
+    // ==========================================================
+
+    const symptoms =
+        Array.isArray(treatment.symptoms)
+            ? treatment.symptoms
+            : [];
+
+    const symptomsHtml =
+        symptoms.length
+            ? `
+                <div class="disease-advice-section">
+                    <h4>
+                        🔍 Triệu chứng tham khảo
+                    </h4>
+
+                    <ul class="disease-management-list">
+                        ${symptoms
+                            .map(
+                                item => `
+                                    <li>
+                                        ${escapeDiseaseHtml(item)}
+                                    </li>
+                                `
+                            )
+                            .join('')}
+                    </ul>
+                </div>
+            `
+            : '';
+
+    // ==========================================================
+    // HƯỚNG XỬ LÝ
+    // ==========================================================
+
+    const management =
+        Array.isArray(treatment.management)
+            ? treatment.management
+            : [];
+
+    const managementHtml =
+        management.length
+            ? `
+                <div class="disease-advice-section">
+                    <h4>
+                        🌿 Hướng xử lý
+                    </h4>
+
+                    <ul class="disease-management-list">
+                        ${management
+                            .map(
+                                item => `
+                                    <li>
+                                        ${escapeDiseaseHtml(item)}
+                                    </li>
+                                `
+                            )
+                            .join('')}
+                    </ul>
+                </div>
+            `
+            : '';
+
+    // ==========================================================
+    // THUỐC / HOẠT CHẤT
+    // ==========================================================
+
+    const groups =
+        Array.isArray(pesticide.groups)
+            ? pesticide.groups
+            : [];
+
+    let pesticideHtml = '';
+
+    // ----------------------------------------------------------
+    // TRƯỜNG HỢP CÂY KHỎE
+    // ----------------------------------------------------------
+
+    if (
+        rawDisease === 'Leaf_Healthy' ||
+        treatmentStatus === 'not_needed'
+    ) {
+
+        pesticideHtml = `
+            <div
+                class="
+                    disease-advice-section
+                    disease-pesticide-section
+                    disease-pesticide-none
+                "
+            >
+                <h4>
+                    ✅ Thuốc bảo vệ thực vật
+                </h4>
+
+                <p>
+                    Không cần sử dụng thuốc bảo vệ thực vật.
+                    Tiếp tục theo dõi và chăm sóc cây bình thường.
+                </p>
+            </div>
+        `;
+
+    }
+
+    // ----------------------------------------------------------
+    // CÓ DANH SÁCH NHÓM HOẠT CHẤT
+    // ----------------------------------------------------------
+
+    else if (groups.length > 0) {
+
+        const groupsHtml =
+            groups
+                .map(group => {
+
+                    const ingredients =
+                        Array.isArray(
+                            group.active_ingredients
+                        )
+                            ? group.active_ingredients
+                            : [];
+
+                    const ingredientHtml =
+                        ingredients.length
+                            ? `
+                                <div
+                                    class="
+                                        disease-ingredient-tags
+                                    "
+                                >
+                                    ${ingredients
+                                        .map(
+                                            ingredient => `
+                                                <span>
+                                                    ${escapeDiseaseHtml(
+                                                        ingredient
+                                                    )}
+                                                </span>
+                                            `
+                                        )
+                                        .join('')}
+                                </div>
+                            `
+                            : '';
+
+                    const groupNote =
+                        group.note
+                            ? `
+                                <small>
+                                    ${escapeDiseaseHtml(
+                                        group.note
+                                    )}
+                                </small>
+                            `
+                            : '';
+
+                    return `
+                        <div
+                            class="
+                                disease-pesticide-group
+                            "
+                        >
+                            <strong>
+                                ${escapeDiseaseHtml(
+                                    group.group ||
+                                    'Nhóm hoạt chất'
+                                )}
+                            </strong>
+
+                            ${ingredientHtml}
+
+                            ${groupNote}
+                        </div>
+                    `;
+                })
+                .join('');
+
+        const pesticideNote =
+            pesticide.note
+                ? `
+                    <p
+                        class="
+                            disease-pesticide-note
+                        "
+                    >
+                        ${escapeDiseaseHtml(
+                            pesticide.note
+                        )}
+                    </p>
+                `
+                : '';
+
+        pesticideHtml = `
+            <div
+                class="
+                    disease-advice-section
+                    disease-pesticide-section
+                "
+            >
+                <div
+                    class="
+                        disease-treatment-heading
+                    "
+                >
+                    <h4>
+                        💊 Thuốc / hoạt chất tham khảo
+                    </h4>
+
+                    <span
+                        class="
+                            disease-treatment-status
+                        "
+                    >
+                        ${escapeDiseaseHtml(
+                            pesticide.recommendation_level ||
+                            'tham khảo'
+                        )}
+                    </span>
+                </div>
+
+                <div
+                    class="
+                        disease-pesticide-groups
+                    "
+                >
+                    ${groupsHtml}
+                </div>
+
+                ${pesticideNote}
+            </div>
+        `;
+
+    }
+
+    // ----------------------------------------------------------
+    // CHƯA ĐỦ CƠ SỞ ĐỀ XUẤT THUỐC
+    // ----------------------------------------------------------
+
+    else {
+
+        const noDrugMessage =
+            pesticide.note ||
+            treatment.chemical_note ||
+            'Chưa đủ thông tin để đề xuất thuốc.';
+
+        pesticideHtml = `
+            <div
+                class="
+                    disease-advice-section
+                    disease-pesticide-section
+                    disease-pesticide-warning
+                "
+            >
+                <h4>
+                    💊 Thuốc / hoạt chất tham khảo
+                </h4>
+
+                <p>
+                    ${escapeDiseaseHtml(
+                        noDrugMessage
+                    )}
+                </p>
+
+                <div
+                    class="
+                        disease-confirm-box
+                    "
+                >
+                    ⚠️ Cần xác nhận thêm tác nhân
+                    hoặc triệu chứng trước khi
+                    lựa chọn thuốc.
+                </div>
+            </div>
+        `;
+    }
+
+    // ==========================================================
+    // CẢNH BÁO SỬ DỤNG THUỐC
+    // ==========================================================
+
+    const regulatoryNote =
+        pesticide.regulatory_note ||
+        treatment.warning ||
+        '';
+
+    const warningHtml =
+        regulatoryNote
+            ? `
+                <div
+                    class="
+                        disease-regulatory-warning
+                    "
+                >
+                    <strong>
+                        ⚠️ Lưu ý sử dụng thuốc
+                    </strong>
+
+                    <p>
+                        ${escapeDiseaseHtml(
+                            regulatoryNote
+                        )}
+                    </p>
+                </div>
+            `
+            : '';
+
+    // ==========================================================
+    // DISCLAIMER AI
+    // ==========================================================
+
+    const disclaimer =
+        prediction.disclaimer || '';
+
+    const disclaimerHtml =
+        disclaimer
+            ? `
+                <div
+                    class="
+                        disease-regulatory-warning
+                    "
+                >
+                    <strong>
+                        🤖 Lưu ý về kết quả AI
+                    </strong>
+
+                    <p>
+                        ${escapeDiseaseHtml(
+                            disclaimer
+                        )}
+                    </p>
+                </div>
+            `
+            : '';
+
+    // ==========================================================
+    // ĐƯA TOÀN BỘ LÊN GIAO DIỆN
+    // ==========================================================
+
+    treatmentWrapper.innerHTML = `
+        ${likelyCause}
+        ${symptomsHtml}
+        ${managementHtml}
+        ${pesticideHtml}
+        ${warningHtml}
+        ${disclaimerHtml}
+    `;
+
+    resultBox.appendChild(
+        treatmentWrapper
+    );
+
+    // ==========================================================
+    // HIỆN KẾT QUẢ
+    // ==========================================================
+
+    resultBox.classList.remove('hidden');
+
+    resultBox.scrollIntoView({
         behavior: 'smooth',
         block: 'nearest'
     });

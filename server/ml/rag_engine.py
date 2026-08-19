@@ -25,6 +25,12 @@ MAX_CONTEXT_CHARS = 4000
 # Sử dụng /tmp cho HF Cache
 HF_CACHE_DIR = "/tmp/hf_cache"
 
+# Render Free chỉ có 512 MB RAM.
+# Tắt RAG nặng trên Render để tránh Out Of Memory / status 137.
+IS_RENDER = os.getenv("RENDER", "").lower() == "true"
+DISABLE_RAG = os.getenv("DISABLE_RAG", "").lower() in ("1", "true", "yes")
+RAG_DISABLED = IS_RENDER or DISABLE_RAG
+
 class KnowledgeBaseRetrieval:
     _instance = None
     _embeddings = None
@@ -38,10 +44,14 @@ class KnowledgeBaseRetrieval:
     @property
     def embeddings(self):
         """Lazy load embeddings model."""
+        if RAG_DISABLED:
+            print("⚠️ RAG embeddings disabled on Render Free to save RAM.")
+            return None
+
         if self._embeddings is None:
             print(f"🚀 Loading Embedding Model (all-MiniLM-L6-v2) to {HF_CACHE_DIR}...")
-            if not os.path.exists(HF_CACHE_DIR):
-                os.makedirs(HF_CACHE_DIR, exist_ok=True)
+            os.makedirs(HF_CACHE_DIR, exist_ok=True)
+
             try:
                 self._embeddings = HuggingFaceEmbeddings(
                     model_name="all-MiniLM-L6-v2",
@@ -49,22 +59,30 @@ class KnowledgeBaseRetrieval:
                 )
             except Exception as e:
                 print(f"❌ Lỗi khởi tạo Embeddings: {e}")
-                # Fallback to local model path if needed or re-raise
-                raise e
+                return None
+
         return self._embeddings
 
     @property
     def vectorstore(self):
         """Lazy load vector database."""
+        if RAG_DISABLED:
+            return None
+
         if self._vectorstore is None:
             if not os.path.exists(CHROMA_DIR):
                 print(f"⚠️ Cảnh báo: Thư mục Vector DB không tồn tại tại {CHROMA_DIR}")
                 return None
-            
+
+            embeddings = self.embeddings
+            if embeddings is None:
+                return None
+
             self._vectorstore = Chroma(
                 persist_directory=CHROMA_DIR,
-                embedding_function=self.embeddings
+                embedding_function=embeddings
             )
+
         return self._vectorstore
 
     def _clean_content(self, text: str) -> str:

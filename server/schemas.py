@@ -211,11 +211,16 @@ class ChatMessage(BaseModel):
 
 class ChatContext(BaseModel):
     """Ngữ cảnh hiện tại của UI để AI biết user đang xem gì."""
+
     location: Optional[str] = None
     crop: Optional[str] = None
     mode: Optional[str] = "Kinh doanh"
     capital: Optional[float] = None
     area_ha: Optional[float] = None
+
+    # Memory của ca bệnh gần nhất
+    disease_context: Optional[dict] = None
+    disease_session: Optional[dict] = None
 
 
 class ChatRequest(BaseModel):

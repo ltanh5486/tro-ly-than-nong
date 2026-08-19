@@ -2168,3 +2168,273 @@ body::before {
 .results-container {
     padding-bottom: 80px;
 }
+
+/* =========================================================
+   KẾT QUẢ ĐIỀU TRỊ BỆNH SẦU RIÊNG
+   ========================================================= */
+
+.disease-treatment-wrapper {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    width: 100%;
+}
+
+/* Khối nội dung chung */
+.disease-advice-section {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(22, 101, 52, 0.16);
+    border-radius: 18px;
+    padding: 20px 22px;
+    box-shadow: 0 8px 24px rgba(15, 81, 50, 0.06);
+}
+
+.disease-advice-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 18px;
+    font-weight: 800;
+    color: #173f31;
+    line-height: 1.4;
+}
+
+.disease-advice-section p {
+    margin: 0;
+    color: #374151;
+    font-size: 15px;
+    line-height: 1.7;
+}
+
+
+/* =========================================================
+   DANH SÁCH TRIỆU CHỨNG / HƯỚNG XỬ LÝ
+   ========================================================= */
+
+.disease-management-list {
+    margin: 0;
+    padding-left: 22px;
+    color: #374151;
+}
+
+.disease-management-list li {
+    margin-bottom: 8px;
+    line-height: 1.65;
+    font-size: 15px;
+}
+
+.disease-management-list li:last-child {
+    margin-bottom: 0;
+}
+
+
+/* =========================================================
+   PHẦN THUỐC / HOẠT CHẤT
+   ========================================================= */
+
+.disease-pesticide-section {
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    background:
+        linear-gradient(
+            135deg,
+            rgba(236, 253, 245, 0.95),
+            rgba(255, 255, 255, 0.96)
+        );
+}
+
+.disease-treatment-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.disease-treatment-heading h4 {
+    margin: 0;
+}
+
+
+/* Trạng thái khuyến nghị */
+.disease-treatment-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #e5f5ec;
+    border: 1px solid #b8dfca;
+    color: #14532d;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   NHÓM THUỐC
+   ========================================================= */
+
+.disease-pesticide-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.disease-pesticide-group {
+    padding: 15px 16px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(22, 101, 52, 0.13);
+}
+
+.disease-pesticide-group strong {
+    display: block;
+    margin-bottom: 9px;
+    color: #153f30;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.disease-pesticide-group small {
+    display: block;
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+
+/* =========================================================
+   CÁC HOẠT CHẤT
+   ========================================================= */
+
+.disease-ingredient-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.disease-ingredient-tags span {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 11px;
+    border-radius: 10px;
+    background: #eef8f2;
+    border: 1px solid #c9e7d5;
+    color: #14532d;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+
+/* Ghi chú thuốc */
+.disease-pesticide-note {
+    margin-top: 14px !important;
+    padding-top: 13px;
+    border-top: 1px dashed rgba(22, 101, 52, 0.22);
+    color: #475569 !important;
+}
+
+
+/* =========================================================
+   TRƯỜNG HỢP KHÔNG CẦN THUỐC
+   ========================================================= */
+
+.disease-pesticide-none {
+    background:
+        linear-gradient(
+            135deg,
+            rgba(240, 253, 244, 0.96),
+            rgba(255, 255, 255, 0.96)
+        );
+    border-color: rgba(34, 197, 94, 0.28);
+}
+
+
+/* =========================================================
+   TRƯỜNG HỢP CHƯA ĐỦ CƠ SỞ KÊ THUỐC
+   ========================================================= */
+
+.disease-pesticide-warning {
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255, 251, 235, 0.96),
+            rgba(255, 255, 255, 0.96)
+        );
+    border-color: rgba(245, 158, 11, 0.28);
+}
+
+.disease-confirm-box {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #fff7df;
+    border: 1px solid #f5d98b;
+    color: #78540a;
+    font-size: 14px;
+    line-height: 1.55;
+    font-weight: 600;
+}
+
+
+/* =========================================================
+   CẢNH BÁO SỬ DỤNG THUỐC / AI
+   ========================================================= */
+
+.disease-regulatory-warning {
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: #fffaf0;
+    border-left: 4px solid #eab308;
+    color: #475569;
+}
+
+.disease-regulatory-warning strong {
+    display: block;
+    margin-bottom: 7px;
+    color: #713f12;
+    font-size: 14px;
+}
+
+.disease-regulatory-warning p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    .disease-treatment-wrapper {
+        margin-top: 18px;
+        gap: 14px;
+    }
+
+    .disease-advice-section {
+        padding: 16px;
+        border-radius: 14px;
+    }
+
+    .disease-advice-section h4 {
+        font-size: 16px;
+    }
+
+    .disease-advice-section p,
+    .disease-management-list li {
+        font-size: 14px;
+    }
+
+    .disease-treatment-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .disease-ingredient-tags span {
+        font-size: 12px;
+    }
+}
