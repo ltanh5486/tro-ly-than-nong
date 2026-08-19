@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+# v23: stable Render chat routing, controlled suggestions, separated disease/suitability context
 from dotenv import load_dotenv
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -971,6 +972,11 @@ def _new_runtime_session() -> Dict[str, Any]:
         "cultivation": {
             "crop": None,
         },
+        "suitability": {
+            "location": None,
+            "area_ha": None,
+            "water_source": None,
+        },
         "pending": {
             "field": None,
             "topic": None,
@@ -1009,13 +1015,14 @@ def _get_runtime_session(user_id, body: ChatRequest) -> Dict[str, Any]:
             session["disease"]["active"] = True
 
             disease_crop = _disease_crop_from_context(body)
-            # Nếu disease context không chứa tên cây, context.crop lúc này là
-            # fallback hợp lệ cho ca bệnh ảnh; KHÔNG dùng crop từ market.
-            if not disease_crop:
-                disease_crop = getattr(ctx, "crop", None)
 
-            if disease_crop:
-                session["disease"]["crop"] = disease_crop
+            # Module nhận diện bệnh hiện tại CHỈ hỗ trợ sầu riêng.
+            # Vì vậy tuyệt đối không lấy context.crop của mạch giá/canh tác
+            # (ví dụ Cà phê Arabica) để ghi đè crop của ca bệnh.
+            if not disease_crop or "sầu riêng" not in str(disease_crop).lower():
+                disease_crop = "Sầu riêng Ri6"
+
+            session["disease"]["crop"] = disease_crop
 
             disease_name = _extract_disease_name(
                 disease_context=disease_context,
@@ -1044,7 +1051,8 @@ def _runtime_explicit_topic(message: str) -> Optional[str]:
         "phân tích xu hướng", "chốt lời", "bán được không", "bán được ko",
         "bán dc không", "bán dc ko", "có bán được không", "có bán được ko",
         "nên chốt", "chốt bán", "đặt cọc", "thương lái",
-        "có thể bán", "bán giờ", "bán lúc này", "bán hiện nay"
+        "có thể bán", "bán giờ", "bán lúc này", "bán hiện nay",
+        "giá 30 ngày", "30 ngày tới", "30 ngày nữa"
     ]
     if any(k in msg for k in market_terms):
         return "market"
@@ -1095,6 +1103,14 @@ def _resolve_runtime_intent(message: str, body: ChatRequest, session: Dict[str, 
     current_crop = detect_crop_in_message(message)
     msg = message.lower().strip()
 
+    # Người dùng sửa lại phạm vi module bệnh: hiện chỉ nhận diện sầu riêng.
+    if any(k in msg for k in [
+        "bệnh cây có mỗi sầu riêng", "bệnh chỉ có sầu riêng",
+        "bệnh cây chỉ sầu riêng", "nhận diện bệnh chỉ sầu riêng",
+        "module bệnh chỉ sầu riêng",
+    ]):
+        return "disease"
+
     # "bệnh cây như thế..." luôn quay về namespace disease của ảnh.
     if explicit == "disease":
         return "disease"
@@ -1117,6 +1133,15 @@ def _resolve_runtime_intent(message: str, body: ChatRequest, session: Dict[str, 
 
     if explicit:
         return explicit
+
+    # Follow-up chọn cây: sau khi đã hỏi "vùng này trồng cây gì", người dùng
+    # thường bổ sung địa điểm/diện tích/nguồn nước thay vì lặp lại câu hỏi.
+    active = session.get("active_topic")
+    if active == "suitability" and any(k in msg for k in [
+        "ha", "hecta", "diện tích", "hồ", "giếng", "nguồn nước",
+        "tưới", "phường", "xã", "b'lao", "bảo lộc", "mùa mưa",
+    ]):
+        return "suitability"
 
     pending = session.get("pending", {})
     if (
@@ -1169,10 +1194,13 @@ def _select_runtime_crop(
         return session["market"].get("crop")
 
     if intent == "disease":
-        # Nếu đang trả lời câu "cây gì?" thì cho phép cập nhật disease crop.
-        if current_crop and pending.get("field") == "crop":
-            session["disease"]["crop"] = current_crop
-        return session["disease"].get("crop") or current_crop
+        # Module bệnh hiện chỉ hỗ trợ sầu riêng. Không cho crop của mạch khác
+        # (cà phê/chè...) ghi đè ca bệnh ảnh.
+        disease_crop = session["disease"].get("crop")
+        if not disease_crop or "sầu riêng" not in str(disease_crop).lower():
+            disease_crop = "Sầu riêng Ri6"
+            session["disease"]["crop"] = disease_crop
+        return disease_crop
 
     if intent == "cultivation":
         if current_crop:
@@ -1209,8 +1237,11 @@ def _finalize_runtime_session(
 
     elif topic == "disease":
         session["disease"]["active"] = True
-        if crop:
+        # Bệnh hiện chỉ dành cho sầu riêng.
+        if crop and "sầu riêng" in str(crop).lower():
             session["disease"]["crop"] = crop
+        elif not session["disease"].get("crop"):
+            session["disease"]["crop"] = "Sầu riêng Ri6"
 
     elif topic == "cultivation" and crop:
         session["cultivation"]["crop"] = crop
@@ -1413,6 +1444,76 @@ def _looks_like_generic_disease_fallback(answer: str) -> bool:
 
 
 
+def _extract_suitability_details(message: str, location: str, session: Dict[str, Any]) -> Dict[str, Any]:
+    """Ghi nhận follow-up về vùng trồng: địa điểm, diện tích và nguồn nước."""
+    msg = (message or "").lower()
+    st = session.setdefault("suitability", {"location": None, "area_ha": None, "water_source": None})
+
+    if "b'lao" in msg or "b’lao" in msg or "bảo lộc" in msg:
+        st["location"] = "Phường B'Lao"
+    elif location:
+        st["location"] = location
+
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:ha|hecta)", msg)
+    if m:
+        try:
+            st["area_ha"] = float(m.group(1).replace(",", "."))
+        except ValueError:
+            pass
+
+    if any(k in msg for k in ["hồ lớn", "hồ tưới", "có hồ", "nguồn nước hồ"]):
+        st["water_source"] = "có hồ lớn, chủ động nước tưới"
+    elif "giếng" in msg:
+        st["water_source"] = "có giếng tưới"
+    elif any(k in msg for k in ["nguồn nước", "nước tưới", "tưới"]):
+        st["water_source"] = st.get("water_source") or "có nguồn nước tưới"
+
+    return st
+
+
+def _suitability_deterministic_answer(location: str, details: Dict[str, Any]) -> str:
+    """Câu trả lời có sẵn cho suggestion vùng trồng và follow-up của nó."""
+    loc = details.get("location") or location or "Phường B'Lao"
+    area = details.get("area_ha")
+    water = details.get("water_source")
+
+    facts = []
+    if area:
+        facts.append(f"diện tích khoảng **{area:g} ha**")
+    if water:
+        facts.append(f"**{water}**")
+    suffix = ("; " + ", ".join(facts)) if facts else ""
+
+    answer = (
+        f"Với **{loc}**{suffix}, nhóm cây nên ưu tiên xem xét là **cà phê Robusta, chè và sầu riêng**. "
+        "Nếu đất thoát nước tốt, tầng đất đủ dày và không bị úng trong mùa mưa, có thể đánh giá thêm **bơ và măng cụt**. "
+        "Vì bạn có nguồn nước tưới chủ động, rủi ro thiếu nước mùa khô giảm đáng kể; tuy nhiên với sầu riêng cần đặc biệt chú ý hệ thống thoát nước trong mùa mưa. "
+    )
+    if area:
+        answer += (
+            f"Với quy mô **{area:g} ha**, chưa nên chọn cây chỉ dựa vào giá hiện tại. "
+            "Nên chốt sau khi kiểm tra thêm loại đất, độ dốc/khả năng thoát nước và mục tiêu đầu tư."
+        )
+    else:
+        answer += "Để chọn sát hơn, hãy cho biết **diện tích**, **nguồn nước tưới** và **khả năng thoát nước** của vườn."
+    return answer
+
+
+def _suggestions_for_topic(topic: str, crop: Optional[str] = None) -> List[str]:
+    """Chỉ phát câu gợi ý đã có handler rõ trong backend."""
+    if topic == "price":
+        return ["Giá 30 ngày tới thế nào?", "Có nên bán lúc này không?", "Phân tích xu hướng giá"]
+    if topic == "market":
+        return ["Giá hiện tại?", "Phân tích xu hướng giá", "Có nên bán lúc này?"]
+    if topic == "weather":
+        return ["Thời tiết này có nên tưới không?", "Mưa gần đây ảnh hưởng cây thế nào?", "Vùng này phù hợp trồng cây gì?"]
+    if topic == "suitability":
+        return ["Nếu có hồ tưới thì sao?", "Diện tích 2 ha thì nên chọn cây nào?", "Mùa mưa cần chú ý gì?"]
+    if topic == "disease":
+        return ["Bệnh này do nguyên nhân gì?", "Tưới tiêu, phân bón và thuốc thế nào?", "Thời tiết hiện nay bệnh có nặng thêm không?"]
+    return []
+
+
 def _suitability_fallback(location: str) -> str:
     return (
         f"Với **{location}**, hệ thống nên ưu tiên xem xét các nhóm cây đang có dữ liệu kỹ thuật "
@@ -1582,7 +1683,7 @@ def _disease_multi_subtopic_answer(
             # Với câu đa ý, bỏ phần mở đầu lặp lại bằng cách giữ toàn câu nhưng gắn nhãn.
             parts.append(f"**{labels.get(kind, kind)}:** {ans}")
 
-    return "\\n\\n".join(parts)
+    return "\n\n".join(parts)
 
 
 
@@ -1903,7 +2004,7 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
         session["pending"] = {"field": None, "topic": None, "crop": None}
         return (
             "Xin chào! Hôm nay tôi có thể giúp gì cho bạn?",
-            ["Giá nông sản hôm nay?", "Tư vấn chăm sóc cây", "Nhận diện sâu bệnh"],
+            ["Giá nông sản hôm nay?", "Thời tiết hôm nay thế nào?", "Vùng này phù hợp trồng cây gì?"],
             "greeting",
         )
 
@@ -1965,36 +2066,46 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
         )
         return finish(
             answer,
-            ["Giá hiện tại?", "Phân tích xu hướng giá", "Có nên bán lúc này?"],
+            _suggestions_for_topic("market", crop),
             "market",
             crop,
         )
 
     if intent == "suitability":
-        weather_context = get_weather(location)
-        answer = await _get_rag_response(
-            f"Khu vực {location} phù hợp trồng cây gì? Phân tích theo khí hậu, đất đai, "
-            "độ cao, lượng mưa, khả năng thoát nước và tài liệu kỹ thuật trong hệ thống.",
-            history=[],
-            disease_context=None,
-            disease_session=None,
-            weather_context=weather_context,
+        details = _extract_suitability_details(message, location, session)
+        answer = _suitability_deterministic_answer(location, details)
+        return finish(answer, _suggestions_for_topic("suitability"), "suitability", None)
+
+    # Người dùng nhắc/sửa lại phạm vi nhận diện bệnh.
+    msg_low = message.lower().strip()
+    if intent == "disease" and any(k in msg_low for k in [
+        "bệnh cây có mỗi sầu riêng", "bệnh chỉ có sầu riêng",
+        "bệnh cây chỉ sầu riêng", "nhận diện bệnh chỉ sầu riêng",
+        "module bệnh chỉ sầu riêng",
+    ]):
+        session["disease"]["active"] = True
+        session["disease"]["crop"] = "Sầu riêng Ri6"
+        disease_name = session["disease"].get("name")
+        disease_text = _display_disease_name(disease_name)
+        answer = (
+            "Đúng. **Module nhận diện bệnh hiện tại của hệ thống chỉ áp dụng cho sầu riêng**. "
+            f"Ca bệnh đang được giữ là **Sầu riêng Ri6 – {disease_text}**. "
+            "Tôi sẽ dùng ca bệnh sầu riêng này cho các câu hỏi tiếp theo về nguyên nhân, xử lý, tưới, phân và thuốc; "
+            "không lấy cây đang hỏi giá như cà phê/chè để ghi đè ca bệnh nữa."
         )
-        if _llm_unavailable_answer(answer):
-            answer = _suitability_fallback(location)
-        return finish(answer, [], "suitability", None)
+        return finish(answer, _suggestions_for_topic("disease", "Sầu riêng Ri6"), "disease", "Sầu riêng Ri6")
 
     # Nếu đang có ca bệnh hoạt động, ưu tiên hiểu các câu hỏi về nguyên nhân
     # hoặc tác động của thời tiết lên bệnh trước nhánh weather chung.
     disease_semantic_kind = _disease_semantic_followup_kind(message)
     if session["disease"].get("active") and disease_semantic_kind == "cause":
-        disease_crop = session["disease"].get("crop") or crop
+        disease_crop = session["disease"].get("crop") or "Sầu riêng Ri6"
         disease_name = session["disease"].get("name")
         answer = _disease_cause_answer(disease_crop, disease_name)
-        return finish(answer, [], "disease", disease_crop)
+        return finish(answer, _suggestions_for_topic("disease", disease_crop), "disease", disease_crop)
 
     if session["disease"].get("active") and disease_semantic_kind == "weather_risk":
-        disease_crop = session["disease"].get("crop") or crop
+        disease_crop = session["disease"].get("crop") or "Sầu riêng Ri6"
         disease_name = session["disease"].get("name")
         weather_context = get_weather(location)
         answer = _disease_weather_risk_answer(
@@ -2003,18 +2114,14 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
             location,
             weather_context,
         )
-        return finish(answer, [], "disease", disease_crop)
+        return finish(answer, _suggestions_for_topic("disease", disease_crop), "disease", disease_crop)
 
     if intent == "weather":
         weather_context = get_weather(location)
         answer = _weather_deterministic_answer(message, location, weather_context)
         return finish(
             answer,
-            [
-                "Thời tiết này có nên tưới không?",
-                "Mưa gần đây ảnh hưởng cây thế nào?",
-                "Vùng này phù hợp trồng cây gì?",
-            ],
+            _suggestions_for_topic("weather", crop),
             "weather",
             crop,
         )
@@ -2050,7 +2157,7 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
     # Disease namespace: crop/name lấy từ ca bệnh ảnh, không lấy market crop.
     use_disease_context = intent == "disease"
     if use_disease_context:
-        crop = session["disease"].get("crop") or crop
+        crop = session["disease"].get("crop") or "Sầu riêng Ri6"
 
         # Drill-down của cùng ca bệnh: chỉ trả đúng ý đang hỏi,
         # không lặp lại toàn bộ tưới/phân/thuốc.
@@ -2061,7 +2168,7 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
                 session["disease"].get("name"),
                 message,
             )
-            return finish(answer, [], "disease", crop)
+            return finish(answer, _suggestions_for_topic("disease", crop), "disease", crop)
 
     weather_context = get_weather(location)
 
@@ -2097,7 +2204,7 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
     )
 
     if intent == "disease" and session["disease"].get("active"):
-        disease_crop = session["disease"].get("crop") or crop
+        disease_crop = session["disease"].get("crop") or "Sầu riêng Ri6"
         disease_name = session["disease"].get("name")
 
         # Không chấp nhận câu fallback chung chung hoặc câu không còn nhắc đúng ca bệnh.
@@ -2111,6 +2218,9 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
                 disease_name,
                 message,
             )
+
+    if intent == "disease" and session["disease"].get("active"):
+        return finish(answer, _suggestions_for_topic("disease", session["disease"].get("crop")), intent, session["disease"].get("crop"))
 
     return finish(answer, [], intent, crop)
 
@@ -2127,7 +2237,7 @@ async def chat(
         if not message:
             return ChatResponse(
                 answer="Xin chào! Hôm nay tôi có thể giúp gì cho bạn?",
-                suggestions=["Giá nông sản hôm nay?", "Tư vấn chăm sóc cây", "Nhận diện sâu bệnh"],
+                suggestions=["Giá nông sản hôm nay?", "Thời tiết hôm nay thế nào?", "Vùng này phù hợp trồng cây gì?"],
             )
 
         msg_low = message.lower()
