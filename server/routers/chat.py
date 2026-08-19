@@ -1586,6 +1586,103 @@ def _disease_multi_subtopic_answer(
 
 
 
+
+def _disease_semantic_followup_kind(message: str) -> str:
+    """Nhận diện câu hỏi nguyên nhân hoặc ảnh hưởng thời tiết của ca bệnh hiện tại."""
+    msg = (message or "").lower().strip()
+
+    cause_terms = [
+        "nguyên nhân", "do đâu", "do gì", "tại sao bị", "vì sao bị",
+        "vì sao cây bị", "bệnh này do gì", "bệnh này do đâu",
+    ]
+    if any(term in msg for term in cause_terms):
+        return "cause"
+
+    weather_risk_terms = [
+        "có nặng thêm không", "có nặng hơn không", "có phát triển mạnh không",
+        "có lan nhanh không", "thời tiết này có ảnh hưởng", "thời tiết hiện nay",
+        "với thời tiết hiện nay", "mưa như vậy có ảnh hưởng",
+        "độ ẩm như vậy có ảnh hưởng", "mưa nhiều có làm bệnh",
+        "ẩm như vậy có làm bệnh",
+    ]
+    if any(term in msg for term in weather_risk_terms):
+        return "weather_risk"
+
+    return ""
+
+
+def _disease_cause_answer(crop: Optional[str], disease_name: Optional[str]) -> str:
+    crop_text = crop or "cây trong ca bệnh hiện tại"
+    disease_text = _display_disease_name(disease_name)
+    raw = (disease_name or "").lower()
+
+    if "canker" in raw or "loét" in disease_text.lower():
+        return (
+            f"Với **{crop_text}** đang được nhận diện là **{disease_text}**, "
+            "bệnh thường phát sinh khi tác nhân gây bệnh xâm nhập qua mô thân/cành, "
+            "đặc biệt tại các vết thương cơ giới, vị trí nứt hoặc mô cây suy yếu. "
+            "Mưa nhiều, độ ẩm cao, tán cây ẩm kéo dài và thoát nước kém có thể làm bệnh "
+            "dễ phát triển và lây lan hơn. Ảnh nhận diện chỉ là bước hỗ trợ; để xác định "
+            "chính xác tác nhân cần kết hợp biểu hiện thực tế trên thân/cành và điều kiện vườn."
+        )
+
+    return (
+        f"Với **{crop_text}** đang được nhận diện là **{disease_text}**, nguyên nhân có thể "
+        "liên quan đến tác nhân nấm, vi khuẩn, côn trùng hoặc điều kiện canh tác bất lợi tùy bệnh. "
+        "Cần đối chiếu thêm vị trí vết bệnh, tốc độ lan, độ ẩm vườn và tình trạng thân/rễ để xác định sát hơn."
+    )
+
+
+def _disease_weather_risk_answer(
+    crop: Optional[str],
+    disease_name: Optional[str],
+    location: str,
+    weather: Any,
+) -> str:
+    crop_text = crop or "cây trong ca bệnh hiện tại"
+    disease_text = _display_disease_name(disease_name)
+
+    if not isinstance(weather, dict):
+        return (
+            f"Hiện hệ thống chưa lấy được dữ liệu thời tiết đủ tin cậy tại **{location}** "
+            f"để đánh giá nguy cơ của **{disease_text}** trên **{crop_text}**."
+        )
+
+    rain = _weather_number(weather, "precipitation")
+    humidity = _weather_number(weather, "humidity")
+    tmin = _weather_number(weather, "temp_min")
+    tmax = _weather_number(weather, "temp_max")
+
+    details = []
+    if tmin is not None and tmax is not None:
+        details.append(f"nhiệt độ khoảng **{tmin:g}–{tmax:g}°C**")
+    if rain is not None:
+        details.append(f"lượng mưa khoảng **{rain:g} mm**")
+    if humidity is not None:
+        details.append(f"độ ẩm khoảng **{humidity:g}%**")
+    weather_text = ", ".join(details) if details else "chưa có đủ chỉ số chi tiết"
+
+    high_moisture = (
+        (rain is not None and rain >= 10)
+        or (humidity is not None and humidity >= 80)
+    )
+
+    if high_moisture:
+        return (
+            f"**Có nguy cơ bệnh nặng thêm.** Với **{crop_text}** đang bị **{disease_text}**, "
+            f"thời tiết hiện tại tại **{location}** ({weather_text}) đang khá ẩm. "
+            "Điều kiện ẩm kéo dài có thể giúp mô bệnh duy trì ẩm và làm tăng nguy cơ bệnh tiếp tục "
+            "phát triển hoặc lây lan. Nên ưu tiên thoát nước, giữ tán thông thoáng, hạn chế làm ướt "
+            "thân/cành và theo dõi vết bệnh sau các đợt mưa."
+        )
+
+    return (
+        f"Với **{crop_text}** đang bị **{disease_text}**, thời tiết hiện tại tại **{location}** "
+        f"({weather_text}) chưa cho thấy áp lực ẩm quá cao. Tuy vậy vẫn cần theo dõi vết bệnh "
+        "và tránh để thân/cành hoặc vùng rễ ẩm kéo dài."
+    )
+
+
 def _weather_followup_kind(message: str) -> str:
     msg = message.lower().strip()
 
@@ -1886,6 +1983,27 @@ async def _build_chat_answer(message: str, body: ChatRequest, user_id=None):
         if _llm_unavailable_answer(answer):
             answer = _suitability_fallback(location)
         return finish(answer, [], "suitability", None)
+
+    # Nếu đang có ca bệnh hoạt động, ưu tiên hiểu các câu hỏi về nguyên nhân
+    # hoặc tác động của thời tiết lên bệnh trước nhánh weather chung.
+    disease_semantic_kind = _disease_semantic_followup_kind(message)
+    if session["disease"].get("active") and disease_semantic_kind == "cause":
+        disease_crop = session["disease"].get("crop") or crop
+        disease_name = session["disease"].get("name")
+        answer = _disease_cause_answer(disease_crop, disease_name)
+        return finish(answer, [], "disease", disease_crop)
+
+    if session["disease"].get("active") and disease_semantic_kind == "weather_risk":
+        disease_crop = session["disease"].get("crop") or crop
+        disease_name = session["disease"].get("name")
+        weather_context = get_weather(location)
+        answer = _disease_weather_risk_answer(
+            disease_crop,
+            disease_name,
+            location,
+            weather_context,
+        )
+        return finish(answer, [], "disease", disease_crop)
 
     if intent == "weather":
         weather_context = get_weather(location)
